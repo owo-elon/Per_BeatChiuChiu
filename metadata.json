@@ -1,0 +1,6 @@
+{
+  "name": "打邱邱",
+  "description": "一款舒壓發洩的網頁遊戲，主打極致打擊感與視覺聽覺特效。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

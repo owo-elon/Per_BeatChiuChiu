@@ -123,7 +123,7 @@ export default function App() {
 
       <header
         ref={hudRef}
-        className="relative z-40 px-2 pb-1 pt-2 sm:px-6 sm:pb-3 sm:pt-4 pointer-events-auto"
+        className="relative z-40 w-full min-w-0 px-2 pb-1 pt-2 pointer-events-auto sm:px-6 sm:pb-3 sm:pt-4"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="mx-auto max-w-7xl rounded-2xl border border-white/10 bg-black/55 px-2.5 py-2 shadow-2xl backdrop-blur-md sm:px-4 sm:py-3">
@@ -250,7 +250,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="relative z-20 min-h-0 overflow-hidden">
+      <main className="relative z-20 min-h-0 min-w-0 overflow-hidden">
         <AnimatePresence>
           {comboCount > 1 && (
             <motion.div

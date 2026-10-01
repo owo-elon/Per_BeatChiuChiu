@@ -917,8 +917,16 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
   };
 
   const isCompactLandscape = gameSize.height > 0 && gameSize.height < 450 && gameSize.width > gameSize.height;
+  const isCompactPortrait = gameSize.width > 0 && gameSize.width <= 430 && gameSize.height <= 460 && gameSize.height >= gameSize.width;
   const fitScale = gameSize.width && gameSize.height
-    ? Math.max(0.56, Math.min((gameSize.width - 24) / 320, (gameSize.height - (isCompactLandscape ? 28 : 72)) / 430, isCompactLandscape ? 0.78 : 1))
+    ? Math.max(
+        0.46,
+        Math.min(
+          (gameSize.width - 20) / 300,
+          (gameSize.height - (isCompactLandscape ? 12 : isCompactPortrait ? 18 : 44)) / 360,
+          isCompactLandscape ? 0.72 : 1,
+        ),
+      )
     : 1;
   const touchCursorOffset = cursorPos.pointerType === 'touch'
     ? { x: currentWeapon.animPattern === 'sniper_shot' ? 0 : 48, y: currentWeapon.animPattern === 'sniper_shot' ? 0 : -56, opacity: 0.78 }
@@ -939,7 +947,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* 核心實體打擊人物 (邱邱) - 保證在畫面正中央完美顯示，配合果凍擠壓與受創動畫 */}
-      <div className={`absolute inset-0 z-10 flex items-center justify-center pointer-events-none ${isCompactLandscape ? 'pb-0 -translate-y-2' : 'pb-4 sm:pb-8'}`}>
+      <div className={`absolute inset-0 z-30 flex items-center justify-center pointer-events-none ${isCompactLandscape ? 'pb-0 -translate-y-3' : isCompactPortrait ? 'pb-0 -translate-y-8' : 'pb-2 sm:pb-8'}`}>
         <div style={{ transform: `scale(${fitScale})`, transformOrigin: 'center bottom', willChange: 'transform' }}>
           <div ref={targetPhysRef} style={{ willChange: 'transform' }}>
           <TargetCharacter
@@ -956,7 +964,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       </div>
 
       {/* Three.js Canvas 掛載容器 (內含 3D 粒子爆破、雷神閃電、光劍揮砍與 3D 武器渲染) */}
-      <div ref={containerRef} className="absolute inset-0 w-full h-full z-20 pointer-events-none" />
+      <div ref={containerRef} className="absolute inset-0 z-20 h-full w-full pointer-events-none" />
 
       {/* 1. 拋物線丟擲物 (阿嬤臭豆腐) */}
       {lobProjectiles.map(p => (

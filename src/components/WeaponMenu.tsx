@@ -108,7 +108,7 @@ export default function WeaponMenu() {
   return (
     <nav
       ref={menuRef}
-      className="relative z-40 w-full px-2 pb-[max(0.5rem,var(--safe-bottom))] pt-1 pointer-events-auto select-none sm:px-6 sm:pb-[max(1rem,var(--safe-bottom))]"
+      className="relative z-40 w-full min-w-0 overflow-hidden px-2 pb-[max(0.5rem,var(--safe-bottom))] pt-1 pointer-events-auto select-none sm:px-6 sm:pb-[max(1rem,var(--safe-bottom))]"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-1.5 rounded-t-3xl border border-white/10 bg-black/70 p-2 shadow-2xl backdrop-blur-md sm:gap-2 sm:rounded-3xl sm:p-3">

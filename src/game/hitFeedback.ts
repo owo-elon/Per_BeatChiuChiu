@@ -1,6 +1,6 @@
 import { WeaponConfig } from '../types/weapon';
 
-export type HitRegion = 'head' | 'body' | 'left' | 'right';
+export type HitRegion = 'head' | 'body' | 'left' | 'right' | 'miss';
 
 export interface HitFeedback {
   region: HitRegion;
@@ -17,6 +17,7 @@ const REGION_LABELS: Record<HitRegion, string> = {
   body: '狗身',
   left: '左臉',
   right: '右臉',
+  miss: '空氣',
 };
 
 const REGION_LINES: Record<HitRegion, string[]> = {
@@ -24,6 +25,7 @@ const REGION_LINES: Record<HitRegion, string[]> = {
   body: ['狗身 Q 彈挨揍', '邱邱肚肚中招', '整隻狗被震飛', '狗身被打到波浪化'],
   left: ['左臉被修理', '邱邱左臉啪一聲', '左邊狗臉腫起來', '左臉被打到歪'],
   right: ['右臉遭制裁', '邱邱右臉啪一聲', '右邊狗臉腫起來', '右臉被打到歪'],
+  miss: ['揮空啦', '邱邱偷笑閃開', '打到空氣', '邱邱差點被嚇到'],
 };
 
 const IMPACT_WORDS: Record<string, string[]> = {
@@ -51,6 +53,15 @@ const DOG_BULLY_LINES = [
 ];
 
 export function getHitRegion(screenX: number, screenY: number, rect: DOMRect): HitRegion {
+  if (
+    screenX < rect.left ||
+    screenX > rect.right ||
+    screenY < rect.top ||
+    screenY > rect.bottom
+  ) {
+    return 'miss';
+  }
+
   const nx = (screenX - rect.left) / rect.width;
   const ny = (screenY - rect.top) / rect.height;
 
@@ -70,18 +81,21 @@ export function createHitFeedback(
   const regionLine = pick(REGION_LINES[region]);
   const impact = pick(IMPACT_WORDS[weapon.id] ?? weapon.subtitles ?? ['痛扁邱邱！']);
   const dogLine = pick(DOG_BULLY_LINES);
+  const isMiss = region === 'miss';
   const comboLine = combo >= 20 ? `連打 x${combo + 1}，邱邱已經被霸凌到破防！` : dogLine;
 
   return {
     region,
     regionLabel: REGION_LABELS[region],
-    headline: isCrit ? `暴擊 ${impact}` : impact,
-    damageText: isCrit
+    headline: isMiss ? '邱邱閃開！' : isCrit ? `暴擊 ${impact}` : impact,
+    damageText: isMiss
+      ? '揮空啦！邱邱偷笑'
+      : isCrit
       ? `暴擊狗狗！${REGION_LABELS[region]} +${damage}`
       : `${regionLine} +${damage}`,
-    bubbleText: comboLine,
-    bubblePrefix: isCrit ? '💥 邱邱慘叫：' : '🐶 邱邱挨打：',
-    color: isCrit ? '#f472b6' : combo >= 20 ? '#ef4444' : weapon.animPattern === 'beam' ? '#38bdf8' : '#fbbf24',
+    bubbleText: isMiss ? '邱邱：汪？你打到空氣了啦！' : comboLine,
+    bubblePrefix: isMiss ? '🐶 邱邱嘲笑：' : isCrit ? '💥 邱邱慘叫：' : '🐶 邱邱挨打：',
+    color: isMiss ? '#94a3b8' : isCrit ? '#f472b6' : combo >= 20 ? '#ef4444' : weapon.animPattern === 'beam' ? '#38bdf8' : '#fbbf24',
   };
 }
 

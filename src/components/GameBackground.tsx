@@ -17,7 +17,7 @@ export default function GameBackground({ type }: { type: string }) {
           {/* 遠處大樓剪影 */}
           <div className="absolute bottom-0 left-2 w-8 h-28 bg-slate-400" />
           <div className="absolute bottom-0 left-12 w-12 h-36 bg-slate-500" />
-          <div className="absolute bottom-0 left-26 w-10 h-24 bg-slate-400" />
+          <div className="absolute bottom-0 left-[6.5rem] w-10 h-24 bg-slate-400" />
           <div className="absolute top-4 right-4 w-10 h-10 rounded-full bg-amber-200/60" />
           {/* 百葉窗條紋 */}
           <div className="absolute inset-0 flex flex-col justify-between opacity-30">
@@ -45,7 +45,7 @@ export default function GameBackground({ type }: { type: string }) {
         </div>
 
         {/* 辦公桌盆栽 */}
-        <div className="absolute bottom-44 sm:bottom-48 left-1/6 w-12 h-16 sm:w-16 sm:h-20 text-3xl sm:text-4xl">
+        <div className="absolute bottom-44 left-[16%] h-16 w-12 text-3xl sm:bottom-48 sm:h-20 sm:w-16 sm:text-4xl">
           🪴
         </div>
 
@@ -79,11 +79,11 @@ export default function GameBackground({ type }: { type: string }) {
         {/* 夜空 */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#0f172a] via-[#1e1b4b] to-[#1e293b]">
           {/* 星星 */}
-          <div className="absolute top-8 left-1/5 w-1 h-1 bg-white rounded-full animate-ping" />
+          <div className="absolute top-8 left-[20%] w-1 h-1 rounded-full bg-white animate-ping" />
           <div className="absolute top-16 right-1/4 w-1.5 h-1.5 bg-yellow-100 rounded-full" />
           <div className="absolute top-10 right-12 w-1 h-1 bg-white rounded-full" />
           {/* 月亮 */}
-          <div className="absolute top-8 right-8 sm:right-16 w-14 sm:w-18 h-14 sm:h-18 rounded-full bg-amber-100 shadow-[0_0_30px_#fde047]" />
+          <div className="absolute top-8 right-8 h-14 w-14 rounded-full bg-amber-100 shadow-[0_0_30px_#fde047] sm:right-16 sm:h-[4.5rem] sm:w-[4.5rem]" />
         </div>
 
         {/* 遠處城市剪影 */}
@@ -167,7 +167,7 @@ export default function GameBackground({ type }: { type: string }) {
       {/* 公園綠油油草坪 */}
       <div className="absolute bottom-0 w-full h-40 sm:h-48 bg-gradient-to-t from-emerald-700 to-emerald-500 border-t-8 border-emerald-400">
         {/* 碎石小徑 */}
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 sm:w-64 h-full bg-amber-200/50 clip-path-polygon" />
+        <div className="absolute bottom-0 left-1/2 h-full w-48 -translate-x-1/2 bg-amber-200/50 [clip-path:polygon(25%_0,75%_0,100%_100%,0_100%)] sm:w-64" />
 
         {/* 草地花朵裝飾 */}
         <div className="w-full h-full flex justify-around items-center px-8 text-2xl sm:text-3xl opacity-90">

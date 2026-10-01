@@ -1,0 +1,137 @@
+# Per_BeatChiuChiu 3.0 開發指令 (Prompt) — 手機版面與觸控體驗大修
+
+你是資深前端工程師 / 行動裝置 UX 工程師。請在現有專案 (React 19 + Vite + TypeScript + Three.js + zustand + motion + Tailwind 4) 上進行 3.0 升級，本版唯一主軸：**手機 (含橫豎屏) 版面不再互相遮擋、不再被裁切、不再誤觸**，同時不得破壞 2.0 的打擊手感與「打邱邱」主題。
+先完整閱讀 src/ 與 Prompt/2.0.txt 再動手。
+
+環境注意 (Windows PowerShell)：
+- PowerShell 會擋 npm.ps1，請一律用 `npm.cmd`：`npm.cmd install`、`npm.cmd run lint`、`npm.cmd run build`、`npm.cmd run preview`。
+- `npm run build` 會先自動跑 lint；`npm run preview` 會先自動 build。每個階段結束都要 lint + build 通過再往下。
+- 所有 UI 文字維持繁體中文；主題維持「邱邱是一隻狗，被打、被制裁、打到汪汪叫」的卡通霸凌氛圍 (非血腥)。
+
+======================================================================
+一、現況診斷：手機版已知會卡版 / 跑版的位置 (已讀程式碼)
+======================================================================
+
+【視窗與基礎設定】
+1. src/App.tsx 根容器用 `w-screen h-screen`：手機瀏覽器的 100vh 包含網址列，實際可視高度更小 => 底部武器列被網址列/Home 條蓋住、整個畫面可被捲動。需改用 `100dvh` (或 `svh`) 並提供 fallback。
+2. index.html 的 viewport 缺 `viewport-fit=cover`，且沒有 `maximum-scale/user-scalable` 策略、沒有 `theme-color`；iPhone 瀏海 / 動態島 / Home Indicator 區域沒有 safe-area padding。
+3. src/index.css 沒有 `overscroll-behavior: none`、`touch-action`、`-webkit-touch-callout: none`、`-webkit-tap-highlight-color: transparent`、`user-select: none` 的全域設定：會出現下拉重新整理、雙擊放大、長按選字/選圖、長按跳出圖片選單 (狗頭/狗身 img) 的問題。
+
+【頂部 HUD (App.tsx)】
+4. 頂部列是 `justify-between` 的「左：分數 + 靜音 / 右：combo + 場景選單」，再用 absolute 把「打邱邱」標題塞在 `left-1/2`。360px 寬時三塊會互相重疊 (分數卡 + 靜音鈕就已佔 ~230px，加上右側 combo/select 與中間標題必然壓到彼此)。
+5. 「邱邱挨打值」進度條用 `hidden sm:block`：手機完全看不到這個核心進度；成就數也只在那張卡裡。
+6. 成就 Toast 固定 `top-24`，在手機會壓在 HUD 上；文字無寬度上限，長成就名稱會超出螢幕。
+7. combo 狂暴字級 `text-3xl` 加 `scale 1.8~2.1` 動畫，窄螢幕會被右邊切掉。
+8. 背景選單 `<select>` 在 iOS 會彈出原生滾輪、佔用大量版面；建議改成小圖示按鈕 / 底部抽屜。
+
+【遊戲主區與邱邱 (ThreeScene.tsx / TargetCharacter.tsx)】
+9. 主區 `pb-20` 與武器選單高度是兩套獨立的魔術數字：武器選單實際高度 = 狀態標籤 + 列表 + 邊距，約 130~150px，遠大於 pb-20 (80px) => 邱邱下半身與「邱邱挨打值」標籤 (`-bottom-8`) 被選單蓋住。
+10. 邱邱尺寸寫死 (`w-36 h-36`/`w-56 h-64`)，橫屏手機 (高度約 360~400px) 時頭 + 身體 ≈ 400px 以上，必定被 HUD 與武器列夾到而溢出；直屏小機型 (360x640) 也過於擁擠。需依「可用高度」動態縮放 (CSS clamp / container query / JS 量測 + scale)。
+11. 邱邱頭上對話氣泡 `-top-28 whitespace-nowrap`：2.0 之後台詞變長 (例：「邱邱被雞叫震到破防！」加上前綴「🐶 邱邱挨打：」)，窄螢幕會左右溢出被裁掉；且 `-top-28` 在小高度時會超出螢幕頂端、壓到 HUD。
+12. 漫畫對話框 (comicBubbles)、傷害浮字 (floatingDamages)、衝擊字 (impactBursts) 都以點擊座標 `left/top` 定位並 `-translate-x-1/2 whitespace-nowrap`：在畫面左右邊緣點擊時文字一半在螢幕外；點擊在上方時浮字被 HUD 蓋住；沒有 clamp 到可視範圍。
+13. `getHitRegion()` (src/game/hitFeedback.ts) 用「整個遊戲容器」的 rect 來算頭/身/左右臉 (ny<0.43 判頭)，而不是「邱邱本體」的 rect：手機容器長寬比不同時，打到頭卻判成身體，部位回饋 (紅腫、暴擊加成) 全部錯位。必須改用 TargetCharacter 實際 DOM 的 getBoundingClientRect。
+14. 3D 命中點換算寫死 `x * 2.8, y * 2.2`，直屏窄螢幕 (aspect ≈ 0.46) 與橫屏 (aspect ≈ 2.2) 粒子/特效位置會明顯偏離手指點擊處。應改用 camera + raycast 或依 aspect 計算可視範圍 (visible height/width at z)。
+15. render 期間直接讀 `window.innerWidth / innerHeight` (狙擊鏡 overlay、手持武器圖示、彈道起點 startX/startY 百分比)：轉屏或網址列伸縮時不會重算，彈道起點位置錯亂；狙擊 hover 邏輯用 `window.innerHeight * 0.48` 當中心，與實際邱邱位置無關。
+16. 手持游標武器圖示 (`fixed ... text-5xl`) 跟著手指：手機上會蓋在手指正下方，擋住要打的位置 (邱邱臉)；且手指離開 (pointerup) 後 `cursorPos.visible` 仍為 true，武器圖示殘留在最後觸點。touch 裝置應偏移顯示 (例如手指上方/側邊 56px) 並在 pointerup/cancel 後淡出。
+17. 狙擊鏡 overlay 的十字準心固定 240px、HUD 文字 `top-[-90px]`，在小螢幕會超出；手機沒有 hover，「懸停拉近」邏輯無意義。
+
+【武器選單 (WeaponMenu.tsx)】
+18. 選單 `absolute bottom-2` + `max-w-5xl` + 左右箭頭 `-left-2/-right-3`：箭頭按鈕超出容器邊緣，在 360px 寬被裁掉或與螢幕邊緣黏在一起；卡片 64px 在小螢幕一次只看到 4 把，21 把武器要滑很久。
+19. 選單本身有 `touch-pan-x`，但父層 (ThreeScene root / App root) 是 `touch-none`，並且選單 `onPointerDown stopPropagation`：容易出現「橫向滑動武器列時誤觸發打擊 / 或滑不動」；需要實測並修正手勢衝突。
+20. 「當前手持」狀態標籤含 icon + 名稱 + 攻擊類型徽章 + 傷害 (+ md 以上才有描述)，窄螢幕會換行或撐破寬度；沒有 safe-area-inset-bottom，Home Indicator 會壓到選單。
+21. 沒有武器分類/篩選，21 把全塞同一排。
+
+【背景與其他】
+22. src/components/GameBackground.tsx 大量絕對定位 + 固定尺寸 (窗戶 `w-36 h-48`、看板、霓虹招牌、`left-1/6` 等) 在直屏小螢幕會互相重疊或被 HUD 蓋住，並含無效的 Tailwind 類別 (`left-1/6`、`left-1/5`、`w-18 h-18`、`clip-path-polygon` 等) —— 需清理。
+23. renderer pixelRatio 上限 2，低階手機 GPU/電量吃緊；resize 只監聽 window.resize，未處理 `visualViewport` 變化、`orientationchange`、ResizeObserver。
+24. hold 武器 (雷射/風扇) 與 drag 武器 (光劍/吸盤) 在觸控上：沒有 pointer capture、`pointerleave` 即停止、多指同時按會互相覆蓋 lastMousePos；`pointercancel` (系統手勢中斷) 沒有處理，會卡在「一直按住」狀態。
+25. 無 `prefers-reduced-motion`、震動/閃爍沒有開關，手機上畫面震動 + 縮放動畫在小螢幕容易造成不適。
+
+======================================================================
+二、3.0 工作項目 (依優先序)
+======================================================================
+
+### 階段 A：行動版基礎設定 (先做，最小風險)
+A1. index.html：`<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`，加 `<meta name="theme-color">`、`apple-mobile-web-app-capable`。是否限制縮放請自行評估 (遊戲建議禁止雙擊縮放，但不要完全鎖死可及性——用 `touch-action: manipulation` 解決雙擊縮放即可)。
+A2. src/index.css 全域：
+    - `html, body, #root { height: 100%; }`，根容器改用 `height: 100dvh` (含 `100vh` fallback)；`overflow: hidden`；`overscroll-behavior: none`。
+    - `body { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; touch-action: manipulation; }`，`img { -webkit-user-drag: none; user-drag: none; }`。
+    - 定義 CSS 變數：`--safe-top/right/bottom/left` (env(safe-area-inset-*))、`--hud-h`、`--menu-h`，讓 HUD / 武器列 / 遊戲區共用，**取代所有魔術數字 pb-16/pb-20/pb-24/top-24**。
+A3. App.tsx 根容器改為 CSS Grid / Flex 三段式佈局：
+    `[HUD 區 (auto)] / [遊戲區 (1fr, min-h-0)] / [武器列 (auto)]`，三者是「並排而非疊在上面」，遊戲區拿到的就是實際可用空間，邱邱只需要在遊戲區內置中與縮放，從結構上杜絕被蓋住。HUD 與武器列使用 safe-area padding。
+
+### 階段 B：HUD 重排 (手機優先、桌機維持豐富)
+B1. 頂部 HUD 在 < 640px 改為兩列緊湊版：
+    - 第 1 列：左「打邱邱」小標題 (或 LOGO)、中「爽度分數」(縮小字級，數字 tabular-nums)、右「靜音 / 設定 / 場景」三個 40x40 圖示按鈕。
+    - 第 2 列：橫向「邱邱挨打值」細進度條 (全寬，高 8px，旁邊小字 `破防 N`)，**手機也必須看得到**。
+    - 次要資訊 (已打次數、最高 combo、成就數) 收進一個可展開的「戰績」面板 / 底部抽屜，預設收起。
+B2. 場景選擇改為圖示按鈕 + 彈出小選單 (或底部 sheet)，不要用原生 `<select>`；觸控目標最小 44x44px。
+B3. Combo 顯示：不要放在右上角擠版面；改為遊戲區上緣置中的浮動徽章 (pointer-events-none)，狂暴時改用「縮放不超出螢幕」的動畫 (最大 scale 1.25，並以 `max-w-[90vw]` 限制)。
+B4. 成就 Toast：定位在 HUD 下方 (用 CSS 變數 `--hud-h`)，`max-w-[92vw]`、文字 `break-words`、可 2 行；同時間只顯示 1 則，其餘排隊。
+B5. 標題「打邱邱」在手機只保留小版 LOGO，不要與其他控制項搶同一行。
+
+### 階段 C：邱邱與遊戲區自適應
+C1. 在遊戲區容器量測可用寬高 (ResizeObserver，**不要只用 window**)，計算 `fitScale = min(availW / 角色基準寬, availH / 角色基準高, 1)`，以 transform: scale 套用在角色容器 (注意與 JigglePhysics 的 transform 合併：物理放在內層 wrapper，fit 放在外層 wrapper)。基準尺寸 = 目前桌機尺寸 (頭 176 + 身體 256 約 420px 高)。
+C2. 橫屏手機 (高 < 450px)：邱邱縮小並稍微上移，武器列改為更低矮的單排 (只有圖示，無文字)，必要時 HUD 第二列隱藏改為圖示。
+C3. 「邱邱挨打值 xx%・破防 N 次」標籤從角色底部 `-bottom-8` 移除 (HUD 已有進度條)，避免被武器列蓋住；若保留，需放在角色容器內部且受 fitScale 控制。
+C4. 邱邱頭上對話氣泡：`max-w-[min(80vw,22rem)]`、允許換行 (`whitespace-normal` + `text-balance`)、位置以「角色容器內」計算並 clamp，確保不超出遊戲區頂端與左右邊界；台詞過長時縮字級。
+C5. 所有「依點擊座標定位」的浮層 (傷害浮字、漫畫泡泡、衝擊字) 做統一的 `clampToViewport(x, y, w, h, margin)` 工具：
+    - 以遊戲區 rect 為界，保留 safe-area 與 HUD/選單高度。
+    - 點在上緣時浮層往下顯示，點在左右邊緣時水平位移回可視範圍。
+    - 浮層一律 `pointer-events-none`，不得擋住下一次點擊。
+C6. 修正 `getHitRegion`：改為傳入「邱邱本體 DOM rect」(TargetCharacter 提供 ref)，用相對位置判定頭 / 身 / 左臉 / 右臉；點擊在邱邱外 (miss) 時回傳 'miss'：不給部位加成，並顯示「揮空啦！邱邱偷笑」之類的回饋。
+C7. 修正 3D 命中點換算：用 camera 的 fov/aspect/z 距離計算可視半寬半高，把螢幕座標映射成世界座標 (或以 Raycaster 打到 z=0.5 平面)，使粒子/閃電/特效在任何長寬比下都出現在手指點擊處。
+C8. 所有彈道起點 (臭豆腐、火箭、雷射、狙擊、金磚…) 與狙擊鏡 overlay 改為使用「遊戲區 rect」而非 window.innerWidth/innerHeight；rect 由 ResizeObserver 維護並存 ref (不要在 render 內直接讀 window)。轉屏、網址列伸縮、鍵盤彈出時皆會更新。
+C9. 手持武器圖示 (跟隨游標的 emoji)：
+    - `pointerType === 'touch'` 時，偏移到手指上方/右上 (約 -56px, -56px) 並降低不透明度，不得蓋住手指正下方的目標。
+    - `pointerup / pointercancel / pointerleave (touch)` 後 200ms 淡出隱藏。
+    - 桌機維持目前跟隨游標行為。
+C10. 狙擊槍在觸控裝置：移除 hover 拉近邏輯；改為「按住瞄準 (鏡頭微拉近 + 準心鎖在手指位置) → 放開擊發」；準心尺寸以 `clamp()` 或 vmin 計算，HUD 文字改成在 overlay 內 clamp。
+
+### 階段 D：武器選單重做 (WeaponMenu)
+D1. 版型：貼齊底部、寬度 100% (手機不用 max-w-5xl 的外框感)，加 `padding-bottom: max(8px, env(safe-area-inset-bottom))`。箭頭按鈕在觸控裝置隱藏 (用原生橫滑 + scroll-snap)，桌機才顯示且放在容器內側 (不超出邊界)。
+D2. 卡片：手機 56~60px，名稱字 10px 單行省略；選中卡片自動 `scrollIntoView({inline:'center'})`。
+D3. 「當前手持」標籤手機改為：icon + 名稱 + 小徽章 (攻擊類型)；描述與傷害收進「長按卡片 / 點擊資訊鈕」才顯示的提示，避免常駐佔高度。
+D4. 手勢衝突：選單容器自行處理橫向滑動 (`touch-action: pan-x`)，並確保滑動選單時**不會**觸發遊戲打擊 (遊戲區的 pointerdown 不在選單內，使用 DOM 結構分離而非只靠 stopPropagation)；同時避免橫向滑動被判成 click 換武器 (移動超過 8px 取消 click)。
+D5. 新增分類 Tab (近戰 / 投擲 / 槍械 / 魔法 / 特殊)，資料寫在 weapons.ts 新增 `category` 欄位；手機預設顯示「全部」，Tab 本身要可橫滑且不佔太高 (≤ 32px)。
+D6. 以 CSS 變數回報選單實際高度 (ResizeObserver 寫入 `--menu-h`)，讓遊戲區與 Toast 能依真實高度計算，而不是魔術數字。
+
+### 階段 E：觸控輸入與穩定性
+E1. 遊戲區使用 `touch-action: none`，但 HUD / 選單 / 抽屜**不得**放在它裡面 (避免互相吃事件)；遊戲區事件改用 `setPointerCapture`，並處理 `pointercancel`、`lostpointercapture`、`visibilitychange` (切到背景時停止 hold/drag 並清除 interval)。
+E2. 多點觸控：以 `pointerId` 區分，hold 武器只追蹤「第一根手指」；其他手指視為額外 click (或忽略，但不得讓狀態壞掉)。
+E3. 禁用長按選單與選取：遊戲區 `onContextMenu` preventDefault；img 設 `draggable=false`。
+E4. 轉屏 (`orientationchange` / `visualViewport.resize`) 與軟鍵盤：重新量測遊戲區、重設 renderer size、camera aspect，並確保不殘留舊的彈道/浮層。
+E5. 效能：行動裝置預設 `pixelRatio = min(devicePixelRatio, 1.5)`；粒子上限降到 1500；連續 2 秒 FPS < 45 自動再降一級；`hold` 武器節流在手機維持 ≥ 95ms。
+E6. 無障礙：支援 `prefers-reduced-motion` 與設定面板開關「減少震動/閃爍」，開啟時關閉 screen shake、縮短 hit-stop、移除狂暴閃爍；`navigator.vibrate` 可在設定關閉。
+
+### 階段 F：背景清理
+F1. GameBackground：把固定 px 尺寸的裝飾改為 `vmin/clamp()`，並在直屏小螢幕隱藏次要裝飾 (窗戶/看板/招牌擇一)；移除無效 Tailwind 類別 (`left-1/6`、`left-1/5`、`w-18 h-18`、`sm:h-76` 等不存在的 class，改用任意值語法 `left-[16%]` 或標準 class)。
+F2. 背景不得與 HUD 文字重疊造成可讀性問題：HUD 面板維持半透明深色底 + 足夠對比。
+
+======================================================================
+三、測試與驗收標準
+======================================================================
+請用 Playwright (或 Chrome DevTools 裝置模擬) 針對下列視窗逐一檢查，並把截圖/結果摘要寫進 commit message 或 README：
+- 直屏：360x640、375x667、390x844 (含 notch safe-area)、412x915、768x1024 (平板)
+- 橫屏：667x375、844x390、915x412
+- 桌機：1280x720、1920x1080 (確認未退化)
+
+驗收：
+1. 任何視窗尺寸下，HUD、邱邱全身、武器列三者**互不重疊、互不裁切**；邱邱完整可見 (含頭、身、挨打標示)。
+2. 360x640 與 844x390 皆可完整操作：切換武器、打擊、查看挨打值/分數/combo、開關靜音、切換場景。
+3. 點擊畫面四個角落與邊緣，傷害浮字 / 泡泡 / 衝擊字都完整落在可視範圍內，且不擋住後續點擊。
+4. 打邱邱的頭 / 左臉 / 右臉 / 身體 / 空白處，部位判定與紅腫/星星位置一致 (用 data-testid + 測試確認)。
+5. 在手機模擬器中，手指點擊處與粒子/特效出現位置誤差 ≤ 24px (直屏與橫屏皆是)。
+6. 橫向滑動武器列不會觸發打擊或誤換武器；縱向手勢不會造成頁面捲動 / 下拉重新整理 / 雙擊縮放 / 長按選單。
+7. 轉屏與網址列伸縮後版面即時重排，無殘留舊彈道、浮層或錯位的狙擊鏡。
+8. 手指離開後手持武器圖示淡出；hold / drag 武器在 pointercancel、切背景、多指情況下不會卡在持續攻擊。
+9. 開啟「減少動態」後無畫面震動與強烈閃爍。
+10. `npm.cmd run lint`、`npm.cmd run build` 皆通過；`npm.cmd run preview` 可開啟並回應 HTTP 200。
+11. 桌機版視覺與手感不退化 (仍保有 2.0 的 hit-stop、shake、部位回饋、成就)。
+
+======================================================================
+四、實作順序建議
+======================================================================
+A (viewport/CSS 變數/三段式佈局) → B (HUD 重排) → C1~C5 (邱邱自適應 + 浮層 clamp) → D (武器選單) → C6~C10 (部位判定/座標映射/狙擊觸控) → E (觸控輸入穩定性/效能) → F (背景清理) → 測試。
+每個階段完成請先 lint + build，再 commit，commit message 說明改動與驗證的視窗尺寸。
+遇到需要美術資源處，先用 CSS / Canvas / emoji 佔位，保持資料驅動。不要在本版加入新武器或新玩法，專注在版面與觸控品質。

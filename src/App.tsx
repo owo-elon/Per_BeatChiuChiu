@@ -1,9 +1,15 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState, useLayoutEffect } from 'react';
 import { useGameStore } from './store/gameStore';
 import ThreeScene from './components/ThreeScene';
 import WeaponMenu from './components/WeaponMenu';
 import GameBackground from './components/GameBackground';
 import { motion, AnimatePresence } from 'motion/react';
+
+const BACKGROUND_OPTIONS = [
+  { id: 'office', icon: '🏢', label: '辦公室' },
+  { id: 'street', icon: '🏙️', label: '街頭' },
+  { id: 'park', icon: '🌳', label: '公園' },
+];
 
 export default function App() {
   const {
@@ -24,11 +30,36 @@ export default function App() {
     toggleMute,
   } = useGameStore();
 
-  // Combo 超時自動中斷計時器 (3 秒沒打擊則重設 Combo 與狂暴狀態)
+  const shellRef = useRef<HTMLDivElement>(null);
+  const hudRef = useRef<HTMLElement>(null);
   const comboTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isSceneMenuOpen, setIsSceneMenuOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
 
-  // 是否進入狂暴狀態 (Combo >= 20)
   const isFrenzy = comboCount >= 20;
+  const currentBackgroundOption = BACKGROUND_OPTIONS.find(option => option.id === currentBackground) ?? BACKGROUND_OPTIONS[0];
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const hud = hudRef.current;
+    if (!shell || !hud) return;
+
+    const updateHudHeight = () => {
+      shell.style.setProperty('--hud-h', `${Math.ceil(hud.getBoundingClientRect().height)}px`);
+    };
+
+    updateHudHeight();
+    const observer = new ResizeObserver(updateHudHeight);
+    observer.observe(hud);
+    window.visualViewport?.addEventListener('resize', updateHudHeight);
+    window.addEventListener('orientationchange', updateHudHeight);
+
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener('resize', updateHudHeight);
+      window.removeEventListener('orientationchange', updateHudHeight);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -44,7 +75,6 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [achievementToast, clearAchievementToast]);
 
-  // 重設 Combo 計時器 (若 3 秒內沒有再次打擊，則中斷 Combo，退出狂暴狀態)
   const refreshComboTimer = useCallback(() => {
     if (comboTimerRef.current) {
       clearTimeout(comboTimerRef.current);
@@ -54,172 +84,223 @@ export default function App() {
     }, 3000);
   }, [resetCombo]);
 
-  // ThreeScene 回呼：打擊邱邱
   const handleHit = useCallback((damage: number) => {
     registerHit(damage);
     refreshComboTimer();
   }, [registerHit, refreshComboTimer]);
 
+  const handleBackgroundChange = (backgroundId: string) => {
+    setBackground(backgroundId);
+    setIsSceneMenuOpen(false);
+  };
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden flex flex-col items-center select-none touch-none">
-      {/* 實體遊戲場景渲染：辦公室老闆房、霓虹街頭巷弄、陽光公園綠地 */}
+    <div
+      ref={shellRef}
+      className="app-shell relative grid grid-rows-[auto_minmax(0,1fr)_auto] select-none text-white"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <GameBackground type={currentBackground} />
 
-      {/* 【狂暴狀態特效】：當 comboCount >= 20 且持續點擊時啟動，邊緣紅色高頻震盪光暈 */}
       <AnimatePresence>
         {isFrenzy && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{
-              opacity: [0.7, 0.95, 0.7],
-              scale: [1, 1.012, 0.99, 1],
+              opacity: [0.55, 0.82, 0.55],
+              scale: [1, 1.006, 0.997, 1],
             }}
             exit={{ opacity: 0, transition: { duration: 0.4 } }}
             transition={{
-              duration: 0.28,
+              duration: 0.3,
               repeat: Infinity,
               ease: 'easeInOut',
             }}
-            className="absolute inset-0 pointer-events-none z-30 shadow-[inset_0_0_80px_rgba(239,68,68,0.85),inset_0_0_140px_rgba(185,28,28,0.7)] border-8 border-red-600/70"
-          >
-            <div className="absolute top-20 left-1/2 -translate-x-1/2 px-6 py-1 bg-red-600/90 text-white font-black text-sm tracking-widest uppercase rounded-full shadow-[0_0_20px_#ef4444] animate-bounce">
-              ⚡ FRENZY MODE 狂暴發洩狀態 ⚡
-            </div>
-          </motion.div>
+            className="absolute inset-0 pointer-events-none z-30 shadow-[inset_0_0_60px_rgba(239,68,68,0.72),inset_0_0_110px_rgba(185,28,28,0.55)] border-4 sm:border-8 border-red-600/60 motion-reduce:hidden"
+          />
         )}
       </AnimatePresence>
 
-      {/* 頂部狀態列 */}
-      <div className="absolute top-0 w-full p-4 sm:p-6 flex justify-between items-start z-40 pointer-events-none">
-        <div className="absolute left-1/2 top-4 sm:top-5 -translate-x-1/2 text-center pointer-events-none">
-          <motion.div
-            initial={{ y: -12, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="px-5 py-2 rounded-2xl bg-black/70 border-2 border-yellow-300/60 shadow-[0_0_25px_rgba(250,204,21,0.45)]"
-          >
-            <h1 className="text-2xl sm:text-4xl font-black text-yellow-300 drop-shadow-[0_3px_0_#000] tracking-widest">
-              打邱邱
-            </h1>
-            <div className="hidden sm:block text-[11px] font-black text-red-200 tracking-[0.25em]">
-              痛扁狗狗邱邱・打到汪汪叫
+      <header
+        ref={hudRef}
+        className="relative z-40 px-2 pb-1 pt-2 sm:px-6 sm:pb-3 sm:pt-4 pointer-events-auto"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto max-w-7xl rounded-2xl border border-white/10 bg-black/55 px-2.5 py-2 shadow-2xl backdrop-blur-md sm:px-4 sm:py-3">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="min-w-0 shrink-0">
+              <h1 className="text-lg font-black tracking-widest text-yellow-300 drop-shadow-[0_2px_0_#000] sm:text-4xl">
+                打邱邱
+              </h1>
+              <div className="hidden text-[11px] font-black tracking-[0.25em] text-red-200 sm:block">
+                痛扁狗狗邱邱・打到汪汪叫
+              </div>
             </div>
-          </motion.div>
-        </div>
 
-        {/* 左側：爽度指數 + 音量切換按鈕 */}
-        <div className="flex items-center gap-3 pointer-events-auto" onPointerDown={(e) => e.stopPropagation()}>
-          <div className="bg-black/60 backdrop-blur-md text-white px-5 py-2 sm:px-6 sm:py-2.5 rounded-2xl shadow-xl border border-white/10">
-            <div className="text-xs text-yellow-300/80 font-bold tracking-widest uppercase">打邱邱爽度</div>
-            <div className="text-3xl sm:text-4xl font-black text-yellow-400 drop-shadow-md">
-              {score.toLocaleString()}
+            <div className="min-w-0 flex-1 text-center">
+              <div className="text-[10px] font-black uppercase tracking-widest text-yellow-300/80 sm:text-xs">
+                打邱邱爽度
+              </div>
+              <div className="truncate font-mono text-xl font-black tabular-nums text-yellow-400 drop-shadow-md sm:text-4xl">
+                {score.toLocaleString()}
+              </div>
             </div>
-            <div className="mt-1 text-[10px] sm:text-xs text-white/70 font-bold">
-              已打邱邱 {totalHits.toLocaleString()} 下｜最高 {maxCombo} COMBO
+
+            <div className="relative flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setIsStatsOpen(prev => !prev)}
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-black/60 text-xl shadow-xl transition hover:bg-black/80 sm:hidden"
+                title="查看戰績"
+              >
+                📊
+              </motion.button>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={toggleMute}
+                className={`flex h-11 w-11 items-center justify-center rounded-2xl border text-xl shadow-xl backdrop-blur-md transition-all sm:h-14 sm:w-14 sm:text-2xl ${
+                  isMuted
+                    ? 'border-red-400 bg-red-500/80 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)] hover:bg-red-500'
+                    : 'border-white/15 bg-black/60 text-yellow-300 hover:bg-black/80'
+                }`}
+                title={isMuted ? '點擊解除靜音' : '點擊開啟靜音'}
+              >
+                {isMuted ? '🔇' : '🔊'}
+              </motion.button>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setIsSceneMenuOpen(prev => !prev)}
+                className="flex h-11 min-w-11 items-center justify-center gap-1 rounded-2xl border border-white/15 bg-black/60 px-3 text-xl font-black shadow-xl backdrop-blur-md transition hover:bg-black/80 sm:h-14 sm:px-4"
+                title="切換場景"
+                aria-expanded={isSceneMenuOpen}
+              >
+                <span>{currentBackgroundOption.icon}</span>
+                <span className="hidden text-xs text-white/80 sm:inline">{currentBackgroundOption.label}</span>
+              </motion.button>
+
+              <AnimatePresence>
+                {isSceneMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    className="absolute right-0 top-[calc(100%+8px)] z-50 w-44 rounded-2xl border border-white/15 bg-black/90 p-2 shadow-2xl backdrop-blur-md"
+                  >
+                    {BACKGROUND_OPTIONS.map(option => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleBackgroundChange(option.id)}
+                        className={`flex h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-black transition ${
+                          option.id === currentBackground
+                            ? 'bg-yellow-300 text-black'
+                            : 'text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <span className="text-xl">{option.icon}</span>
+                        {option.label}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
-          <div className="hidden sm:block w-44 bg-black/60 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-xl border border-red-400/20">
-            <div className="flex justify-between text-[11px] font-black text-red-200 tracking-wider">
-              <span>邱邱挨打值</span>
-              <span>{Math.round(chiuchiuStress)}%</span>
-            </div>
-            <div className="mt-1 h-2.5 rounded-full bg-white/10 overflow-hidden border border-white/10">
+          <div className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-2 sm:mt-3">
+            <span className="text-[11px] font-black tracking-wider text-red-100 sm:text-xs">邱邱挨打值</span>
+            <div className="h-2.5 overflow-hidden rounded-full border border-white/10 bg-white/10 sm:h-3">
               <motion.div
                 className="h-full rounded-full bg-gradient-to-r from-amber-400 via-red-500 to-fuchsia-500"
                 animate={{ width: `${chiuchiuStress}%` }}
                 transition={{ type: 'spring', stiffness: 260, damping: 30 }}
               />
             </div>
-            <div className="mt-1 text-[10px] text-white/65 font-bold">
-              破防 {knockdownCount} 次｜成就 {achievements.length}/5
-            </div>
+            <span className="font-mono text-[11px] font-black tabular-nums text-red-100 sm:text-xs">
+              {Math.round(chiuchiuStress)}%
+            </span>
           </div>
 
-          <motion.button
-            whileTap={{ scale: 0.85 }}
-            onClick={toggleMute}
-            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center text-xl sm:text-2xl shadow-xl backdrop-blur-md border transition-all cursor-pointer ${
-              isMuted
-                ? 'bg-red-500/80 hover:bg-red-500 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]'
-                : 'bg-black/60 hover:bg-black/80 text-yellow-300 border-white/15'
-            }`}
-            title={isMuted ? '點擊解除靜音' : '點擊開啟靜音'}
-          >
-            {isMuted ? '🔇' : '🔊'}
-          </motion.button>
-        </div>
+          <div className="mt-1 hidden items-center justify-between gap-2 text-[11px] font-bold text-white/70 sm:flex">
+            <span>已打邱邱 {totalHits.toLocaleString()} 下</span>
+            <span>最高 {maxCombo} COMBO</span>
+            <span>破防 {knockdownCount} 次</span>
+            <span>成就 {achievements.length}/5</span>
+          </div>
 
-        {/* 右側：Combo 顯示與場景選擇 */}
-        <div className="flex flex-col items-end gap-2.5 pointer-events-auto" onPointerDown={(e) => e.stopPropagation()}>
           <AnimatePresence>
-            {comboCount > 1 && (
-              <motion.div 
-                key={isFrenzy ? 'frenzy' : 'normal'}
-                initial={
-                  isFrenzy
-                    ? { scale: 2.2, rotate: -15, opacity: 0, x: 30 }
-                    : { scale: 1.4, opacity: 0, x: 20 }
-                }
-                animate={
-                  isFrenzy
-                    ? {
-                        scale: [1.8, 2.1, 1.7, 1.9],
-                        rotate: [-8, 8, -5, 6, 0],
-                        x: [-4, 6, -3, 4, 0],
-                        y: [3, -5, 2, -3, 0],
-                        opacity: 1,
-                      }
-                    : { scale: 1, opacity: 1, x: 0 }
-                }
-                exit={{ scale: 0.6, opacity: 0, transition: { duration: 0.3 } }}
-                transition={{
-                  duration: isFrenzy ? 0.35 : 0.25,
-                  repeat: isFrenzy ? Infinity : 0,
-                  repeatType: 'reverse',
-                }}
-                className={`px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl font-black italic shadow-2xl border ${
-                  isFrenzy
-                    ? 'bg-gradient-to-r from-red-600 via-orange-500 to-red-600 text-yellow-200 text-2xl sm:text-3xl border-yellow-300 shadow-[0_0_25px_#ef4444]'
-                    : 'bg-gradient-to-r from-red-600 to-amber-600 text-white text-xl sm:text-2xl border-yellow-300/40 shadow-lg'
-                }`}
+            {isStatsOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-2 overflow-hidden sm:hidden"
               >
-                {isFrenzy ? `🔥 COMBO x${comboCount} 🔥` : `Combo x${comboCount}`}
+                <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-white/10 p-2 text-[11px] font-bold text-white/80">
+                  <span>已打 {totalHits.toLocaleString()} 下</span>
+                  <span>最高 {maxCombo} COMBO</span>
+                  <span>破防 {knockdownCount} 次</span>
+                  <span>成就 {achievements.length}/5</span>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
-
-          <select 
-            className="bg-black/75 text-white border border-white/20 text-xs sm:text-sm px-3.5 py-2.5 rounded-xl font-bold outline-none shadow-2xl cursor-pointer hover:bg-black/90 transition-colors"
-            value={currentBackground}
-            onChange={(e) => setBackground(e.target.value)}
-          >
-            <option value="office">🏢 辦公室老闆房</option>
-            <option value="street">🏙️ 霓虹街頭巷弄</option>
-            <option value="park">🌳 陽光公園綠地</option>
-          </select>
         </div>
-      </div>
+      </header>
+
+      <main className="relative z-20 min-h-0 overflow-hidden">
+        <AnimatePresence>
+          {comboCount > 1 && (
+            <motion.div
+              key={isFrenzy ? 'frenzy' : 'normal'}
+              initial={{ scale: 0.85, opacity: 0, y: -10 }}
+              animate={
+                isFrenzy
+                  ? {
+                      scale: [1, 1.18, 1.08, 1.2],
+                      rotate: [-4, 4, -2, 3, 0],
+                      opacity: 1,
+                      y: [0, -2, 1, 0],
+                    }
+                  : { scale: 1, opacity: 1, y: 0 }
+              }
+              exit={{ scale: 0.7, opacity: 0, y: -8, transition: { duration: 0.25 } }}
+              transition={{
+                duration: isFrenzy ? 0.38 : 0.22,
+                repeat: isFrenzy ? Infinity : 0,
+                repeatType: 'reverse',
+              }}
+              className={`pointer-events-none absolute left-1/2 top-2 z-50 max-w-[90vw] -translate-x-1/2 truncate rounded-xl border px-4 py-1.5 text-center font-black italic shadow-2xl motion-reduce:animate-none sm:top-4 sm:px-5 sm:py-2 ${
+                isFrenzy
+                  ? 'border-yellow-300 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 text-xl text-yellow-200 shadow-[0_0_25px_#ef4444] sm:text-3xl'
+                  : 'border-yellow-300/40 bg-gradient-to-r from-red-600 to-amber-600 text-lg text-white shadow-lg sm:text-2xl'
+              }`}
+            >
+              {isFrenzy ? `🔥 COMBO x${comboCount} 🔥` : `Combo x${comboCount}`}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <ThreeScene onHit={handleHit} />
+      </main>
 
       <AnimatePresence>
         {achievementToast && (
           <motion.div
-            initial={{ opacity: 0, y: -24, scale: 0.8 }}
+            initial={{ opacity: 0, y: -18, scale: 0.88 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -18, scale: 0.9 }}
+            exit={{ opacity: 0, y: -14, scale: 0.9 }}
             transition={{ type: 'spring', stiffness: 420, damping: 24 }}
-            className="absolute top-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-5 py-3 rounded-2xl bg-yellow-300 text-black border-4 border-black shadow-[0_8px_0_rgba(0,0,0,0.9)] font-black text-sm sm:text-base"
+            className="pointer-events-none absolute left-1/2 z-50 max-w-[92vw] -translate-x-1/2 break-words rounded-2xl border-4 border-black bg-yellow-300 px-4 py-2.5 text-center text-sm font-black text-black shadow-[0_8px_0_rgba(0,0,0,0.9)] sm:text-base"
+            style={{ top: 'calc(var(--safe-top) + var(--hud-h) + 8px)' }}
           >
             {achievementToast}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 主 3D 遊戲畫布 (包含 Three.js Jiggle 彈簧物理、GPU 3D 粒子系統、漫畫對話浮動與傷害計算) */}
-      <div className="flex-1 w-full h-full relative z-20 pb-20">
-        <ThreeScene onHit={handleHit} />
-      </div>
-
-      {/* 底部 20 種武器選單 */}
       <WeaponMenu />
     </div>
   );

@@ -1,6 +1,8 @@
 // 武器定義與 TypeScript 型別
 export type AttackType = 'click' | 'hold' | 'drag';
 
+export type WeaponCategory = 'melee' | 'throwable' | 'ranged' | 'magic' | 'special';
+
 export type ParticleType = 
   | 'wood' 
   | 'feather' 
@@ -61,6 +63,7 @@ export interface WeaponConfig {
   description: string;
   icon: string;
   damage: number;
+  category: WeaponCategory;
   attackType: AttackType;
   animPattern: AnimPattern; // 專屬品種動畫模式
   hitSound: string;

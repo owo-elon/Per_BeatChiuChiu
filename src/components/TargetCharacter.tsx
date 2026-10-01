@@ -11,7 +11,6 @@ interface TargetCharacterProps {
   isHeavyHit: boolean; // 是否遭受手榴彈或閃電等重擊
   hitRegion: HitRegion;
   stress: number;
-  knockdownCount: number;
 }
 
 const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
@@ -21,7 +20,6 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
   isHeavyHit,
   hitRegion,
   stress,
-  knockdownCount,
 }, ref) => {
   const stressStage = stress >= 75 ? 3 : stress >= 45 ? 2 : stress >= 18 ? 1 : 0;
   const isHeadHit = hitRegion === 'head';
@@ -38,7 +36,7 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
             animate={{ opacity: 1, y: -45, scale: 1 }}
             exit={{ opacity: 0, scale: 0.7 }}
             transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-            className={`absolute -top-28 sm:-top-32 font-black px-5 py-2.5 sm:px-6 sm:py-3 rounded-2xl border-4 border-black z-30 shadow-2xl whitespace-nowrap text-lg sm:text-xl drop-shadow-lg ${
+            className={`absolute bottom-[calc(100%-0.75rem)] left-1/2 z-30 max-w-[min(80vw,22rem)] -translate-x-1/2 text-balance break-words rounded-2xl border-4 border-black px-4 py-2 text-center text-sm font-black leading-tight shadow-2xl drop-shadow-lg sm:px-6 sm:py-3 sm:text-xl ${
               isHeavyHit ? 'bg-red-500 text-white border-yellow-300' : 'bg-white text-black'
             }`}
           >
@@ -49,10 +47,6 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
           </motion.div>
         )}
       </AnimatePresence>
-
-      <div className="absolute -bottom-8 z-30 px-3 py-1 rounded-full bg-black/75 border border-red-300/40 text-[11px] sm:text-xs font-black text-red-100 shadow-xl">
-        🐶 邱邱挨打值 {Math.round(stress)}% ・ 破防 {knockdownCount} 次
-      </div>
 
       {/* 狗頭與身體容器 (遭受一般打擊或重擊時劇烈的崩潰、變形與半透明閃爍動畫) */}
       <motion.div
@@ -91,6 +85,7 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
           <img 
             src={headImgUrl} 
             alt="邱邱頭部" 
+            draggable={false}
             className="w-36 h-36 sm:w-44 sm:h-44 object-cover rounded-full border-4 border-black bg-white shadow-2xl pointer-events-none drop-shadow-xl"
           />
 
@@ -133,7 +128,8 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
           <img 
             src={bodyImgUrl}
             alt="邱邱身體"
-            className="w-56 h-64 sm:w-64 sm:h-76 object-contain drop-shadow-2xl pointer-events-none"
+            draggable={false}
+            className="h-64 w-56 object-contain drop-shadow-2xl pointer-events-none sm:h-[19rem] sm:w-64"
           />
           {hitRegion === 'body' && (
             <motion.div

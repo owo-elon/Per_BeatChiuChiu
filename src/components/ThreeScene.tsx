@@ -91,9 +91,11 @@ interface ThreeSceneProps {
   onHit: (weaponDamage: number) => void;
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
 export default function ThreeScene({ onHit }: ThreeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { currentWeapon, comboCount, chiuchiuStress, knockdownCount } = useGameStore();
+  const { currentWeapon, comboCount, chiuchiuStress } = useGameStore();
 
   const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
   const [comicBubbles, setComicBubbles] = useState<ComicBubble[]>([]);
@@ -115,9 +117,15 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
   const [blackHoleActive, setBlackHoleActive] = useState<{ id: number; x: number; y: number } | null>(null);
 
   // 滑鼠 / 觸控即時手持游標位置
-  const [cursorPos, setCursorPos] = useState({ x: -100, y: -100, visible: false });
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number; visible: boolean; pointerType: string }>({
+    x: -100,
+    y: -100,
+    visible: false,
+    pointerType: 'mouse',
+  });
   // 專屬武器敲擊動畫觸發次數
   const [swingTrigger, setSwingTrigger] = useState(0);
+  const [gameSize, setGameSize] = useState({ width: 0, height: 0 });
 
   // Three.js 核心物件與 3D 組件引用
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -139,13 +147,74 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
   const hitStopRef = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const targetPhysRef = useRef<HTMLDivElement>(null);
+  const targetHitboxRef = useRef<HTMLDivElement>(null);
   const triggerAttackRef = useRef<(x: number, y: number) => void>(() => {});
   const lastDragHitRef = useRef({ t: 0, x: 0, y: 0 });
+  const prefersReducedMotionRef = useRef(false);
 
   // 拖曳狀態 (Drag) 與 連續按住 (Hold)
   const isMouseDownRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const activePointerTypeRef = useRef<string>('mouse');
   const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const getGameRect = useCallback(() => {
+    return rootRef.current?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+  }, []);
+
+  const clampOverlayPoint = useCallback((screenX: number, screenY: number, width = 220, height = 72, margin = 14) => {
+    const rect = getGameRect();
+    const minX = rect.left + margin + width / 2;
+    const maxX = rect.right - margin - width / 2;
+    const minY = rect.top + margin + height / 2;
+    const maxY = rect.bottom - margin - height / 2;
+
+    return {
+      x: clamp(screenX, Math.min(minX, maxX), Math.max(minX, maxX)),
+      y: clamp(screenY, Math.min(minY, maxY), Math.max(minY, maxY)),
+    };
+  }, [getGameRect]);
+
+  const getMuzzlePoint = useCallback((targetX: number, yRatio = 0.86) => {
+    const rect = getGameRect();
+    const isTargetOnLeft = targetX < rect.left + rect.width / 2;
+    return {
+      x: isTargetOnLeft ? rect.right - rect.width * 0.08 : rect.left + rect.width * 0.08,
+      y: rect.top + rect.height * yRatio,
+      isTargetOnLeft,
+    };
+  }, [getGameRect]);
+
+  const screenToWorldPoint = useCallback((screenX: number, screenY: number, z = 0.5) => {
+    const camera = cameraRef.current;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!camera || !rect) return null;
+
+    const x = ((screenX - rect.left) / rect.width) * 2 - 1;
+    const y = -((screenY - rect.top) / rect.height) * 2 + 1;
+    const vector = new THREE.Vector3(x, y, 0.5);
+    vector.unproject(camera);
+    const dir = vector.sub(camera.position).normalize();
+    const distance = (z - camera.position.z) / dir.z;
+    return camera.position.clone().add(dir.multiplyScalar(distance));
+  }, []);
+
+  const stopActiveAttack = useCallback((hideCursor = false) => {
+    isMouseDownRef.current = false;
+    activePointerIdRef.current = null;
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+    if (hideCursor) {
+      setCursorPos(prev => ({ ...prev, visible: false }));
+    }
+    if (currentWeapon.animPattern === 'sniper_shot') {
+      isHoveringTargetRef.current = false;
+      targetZoomRef.current = 1.0;
+    }
+  }, [currentWeapon.animPattern]);
 
   // 當 currentWeapon 改變時，動態同步切換 3D 空間中的武器模型與重設縮放
   useEffect(() => {
@@ -159,11 +228,55 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     }
   }, [currentWeapon]);
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const updateSize = () => {
+      const rect = root.getBoundingClientRect();
+      setGameSize({
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(root);
+    window.visualViewport?.addEventListener('resize', updateSize);
+    window.addEventListener('orientationchange', updateSize);
+
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener('resize', updateSize);
+      window.removeEventListener('orientationchange', updateSize);
+    };
+  }, []);
+
+  useEffect(() => {
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotionPreference = () => {
+      prefersReducedMotionRef.current = motionQuery.matches;
+    };
+
+    updateMotionPreference();
+    const handleVisibilityChange = () => {
+      if (document.hidden) stopActiveAttack(true);
+    };
+
+    motionQuery.addEventListener('change', updateMotionPreference);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      motionQuery.removeEventListener('change', updateMotionPreference);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [stopActiveAttack]);
+
   // 實際結算打擊效果（物理衝擊、3D 粒子、受擊紅光閃爍、台詞與浮字）
   const executeHitImpact = useCallback((screenX: number, screenY: number, customDamage?: number) => {
     if (!cameraRef.current || !particleManagerRef.current) return;
 
-    const camera = cameraRef.current;
     const jiggle = jigglePhysicsRef.current;
     const particleManager = particleManagerRef.current;
     const targetComp = targetComponentRef.current;
@@ -174,20 +287,24 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     const y = -((screenY - rect.top) / rect.height) * 2 + 1;
 
     // 3D 空間擊中點 (置於邱邱身前 z = 0.5)
-    const hitPoint = new THREE.Vector3(x * 2.8, y * 2.2 + 0.1, 0.5);
+    const hitPoint = screenToWorldPoint(screenX, screenY, 0.5) ?? new THREE.Vector3(x * 2.8, y * 2.2 + 0.1, 0.5);
     const hitDir = new THREE.Vector3(x, y, -1).normalize();
-    const region = getHitRegion(screenX, screenY, rect);
+    const targetRect = targetHitboxRef.current?.getBoundingClientRect() ?? rect;
+    const region = getHitRegion(screenX, screenY, targetRect);
+    const isMiss = region === 'miss';
     setLastHitRegion(region);
 
     // 1. TargetComponent 與 TargetCharacter 受創反應與果凍物理衝擊
-    jiggle.applyImpulse(currentWeapon.physicalForce, hitDir, currentWeapon.id);
-    if (targetComp) {
-      targetComp.onHit();
+    if (!isMiss) {
+      jiggle.applyImpulse(currentWeapon.physicalForce, hitDir, currentWeapon.id);
+      if (targetComp) {
+        targetComp.onHit();
+      }
+      setTargetHitTrigger(prev => prev + 1);
     }
-    setTargetHitTrigger(prev => prev + 1);
 
     // 投擲或潑灑類武器在身上留下污漬
-    if (['stinky_tofu', 'boba_cannon'].includes(currentWeapon.id)) {
+    if (!isMiss && ['stinky_tofu', 'boba_cannon'].includes(currentWeapon.id)) {
       const splatId = Date.now() + Math.random();
       const splatIcon = currentWeapon.id === 'stinky_tofu' ? '🥟' : '🧋';
       setSplatEffects(prev => [...prev.slice(-4), {
@@ -207,10 +324,10 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     }
 
     // 3. 3D 粒子爆發
-    particleManager.emit(hitPoint, currentWeapon.particleType, currentWeapon.id === 'rpg_rocket' ? 80 : 40);
+    particleManager.emit(hitPoint, currentWeapon.particleType, isMiss ? 14 : currentWeapon.id === 'rpg_rocket' ? 80 : 40);
 
     // 若為雷神之鎚 (thunder_hammer)，在擊中點於 3D 空間觸發向四周擴散的隨機多分支閃電鏈弧 (LightningEffect)
-    if (currentWeapon.id === 'thunder_hammer' || currentWeapon.animPattern === 'lightning_strike') {
+    if (!isMiss && (currentWeapon.id === 'thunder_hammer' || currentWeapon.animPattern === 'lightning_strike')) {
       particleManager.triggerLightningEffect(hitPoint, 12);
     }
 
@@ -220,25 +337,28 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 5. 傷害浮字
     const baseDamage = customDamage || currentWeapon.damage;
     const regionMultiplier = region === 'head' ? 1.25 : region === 'left' || region === 'right' ? 1.12 : 1;
-    const critChance = Math.min(0.65, 0.1 + comboCount * 0.005 + (region === 'head' ? 0.15 : 0));
+    const critChance = isMiss ? 0 : Math.min(0.65, 0.1 + comboCount * 0.005 + (region === 'head' ? 0.15 : 0));
     const isCrit = Math.random() < critChance;
-    const damageVal = Math.round(baseDamage * regionMultiplier * (0.85 + Math.random() * 0.3) * (isCrit ? 2 : 1));
+    const damageVal = isMiss ? 0 : Math.round(baseDamage * regionMultiplier * (0.85 + Math.random() * 0.3) * (isCrit ? 2 : 1));
     const feedback = createHitFeedback(currentWeapon, region, damageVal, comboCount, isCrit);
 
     // 打擊回饋：hit-stop 與畫面震動，依傷害分級
     const tier = baseDamage >= 60 ? 2 : baseDamage >= 30 ? 1 : 0;
     const trauma = [0.18, 0.4, 0.75][tier] + (isCrit ? 0.2 : 0);
-    traumaRef.current = Math.min(1, traumaRef.current + trauma);
-    hitStopRef.current = Math.max(hitStopRef.current, [0.03, 0.06, 0.1][tier] + (isCrit ? 0.03 : 0));
-    if (typeof navigator !== 'undefined' && navigator.vibrate && currentWeapon.attackType === 'click') {
+    if (!isMiss && !prefersReducedMotionRef.current) {
+      traumaRef.current = Math.min(1, traumaRef.current + trauma);
+      hitStopRef.current = Math.max(hitStopRef.current, [0.03, 0.06, 0.1][tier] + (isCrit ? 0.03 : 0));
+    }
+    if (!isMiss && !prefersReducedMotionRef.current && typeof navigator !== 'undefined' && navigator.vibrate && currentWeapon.attackType === 'click') {
       navigator.vibrate([12, 25, 40][tier]);
     }
 
     const damageId = Date.now() + Math.random();
+    const damagePoint = clampOverlayPoint(screenX + (Math.random() - 0.5) * 40, screenY - 30, 180, 48);
     const newDamage: FloatingDamage = {
       id: damageId,
-      screenX: screenX + (Math.random() - 0.5) * 40,
-      screenY: screenY - 30,
+      screenX: damagePoint.x,
+      screenY: damagePoint.y,
       text: feedback.damageText,
       color: feedback.color,
     };
@@ -248,10 +368,11 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     }, 900);
 
     const burstId = Date.now() + Math.random();
+    const burstPoint = clampOverlayPoint(screenX, screenY, 260, 86);
     setImpactBursts(prev => [...prev.slice(-4), {
       id: burstId,
-      screenX,
-      screenY,
+      screenX: burstPoint.x,
+      screenY: burstPoint.y,
       text: feedback.headline,
       color: feedback.color,
     }]);
@@ -265,10 +386,11 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       const randomText = currentWeapon.subtitles[Math.floor(Math.random() * currentWeapon.subtitles.length)];
       const subtitle = `${feedback.bubblePrefix}${randomText}`;
       setTargetSubtitle(subtitle);
+      const bubblePoint = clampOverlayPoint(screenX, screenY - 90, 300, 92);
       const newBubble: ComicBubble = {
         id: bubbleId,
-        screenX: screenX,
-        screenY: screenY - 90,
+        screenX: bubblePoint.x,
+        screenY: bubblePoint.y,
         text: feedback.bubbleText,
       };
       setComicBubbles(prev => [...prev.slice(-2), newBubble]);
@@ -278,31 +400,26 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       }, 1200);
     }
 
-    onHit(damageVal);
-  }, [currentWeapon, comboCount, onHit]);
+    if (!isMiss) {
+      onHit(damageVal);
+    }
+  }, [currentWeapon, comboCount, onHit, clampOverlayPoint, screenToWorldPoint]);
 
   // 根據武器品種 (animPattern) 執行專屬打擊動畫與射擊/拋擲流程
   const triggerWeaponAttack = useCallback((clientX: number, clientY: number) => {
     setSwingTrigger(prev => prev + 1);
     const pattern: AnimPattern = currentWeapon.animPattern;
 
-    // 計算以螢幕中央 (midX) 為準：若準心在中間偏左，從右側發射/拋出；若在偏右，從左側發射/拋出
-    const midX = window.innerWidth / 2;
-    const isTargetOnLeft = clientX < midX;
-
+    // 以遊戲區中心為準：若準心在中間偏左，從右側發射/拋出；若在偏右，從左側發射/拋出
+    const muzzle = getMuzzlePoint(clientX, 0.86);
     // 1. 拋物線丟擲類 (lob_throw: 阿嬤臭豆腐)
     if (pattern === 'lob_throw') {
       const projId = Date.now() + Math.random();
-      // 準心在中間左邊 -> 武器從右邊丟出；準心在中間右邊 -> 武器從左邊丟出
-      const startX = isTargetOnLeft 
-        ? window.innerWidth * 0.88 + (Math.random() - 0.5) * 40
-        : window.innerWidth * 0.12 + (Math.random() - 0.5) * 40;
-      const startY = window.innerHeight * 0.88;
       const newLob: LobProjectile = {
         id: projId,
         icon: currentWeapon.icon,
-        startX,
-        startY,
+        startX: muzzle.x + (Math.random() - 0.5) * 40,
+        startY: muzzle.y,
         targetX: clientX,
         targetY: clientY,
       };
@@ -318,14 +435,12 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 2. 直線推進射擊類 (rocket_shoot: 火箭筒, boba_burst: 爆漿珍奶砲)
     if (pattern === 'rocket_shoot' || pattern === 'boba_burst') {
       const bulletId = Date.now() + Math.random();
-      // 準心在中間左邊 -> 武器從右邊發射；準心在中間右邊 -> 武器從左邊發射
-      const startX = isTargetOnLeft ? window.innerWidth * 0.92 : window.innerWidth * 0.08;
-      const startY = window.innerHeight * 0.82;
+      const bulletMuzzle = getMuzzlePoint(clientX, 0.82);
       const newBullet: RocketBullet = {
         id: bulletId,
         icon: pattern === 'rocket_shoot' ? '🚀' : '🧋',
-        startX,
-        startY,
+        startX: bulletMuzzle.x,
+        startY: bulletMuzzle.y,
         targetX: clientX,
         targetY: clientY,
         speed: pattern === 'rocket_shoot' ? 260 : 180,
@@ -342,13 +457,11 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 3. 雷射光束類 (beam: 脈衝雷射槍)
     if (pattern === 'beam') {
       const beamId = Date.now() + Math.random();
-      // 準心在中間左邊 -> 雷射從右下角發射；反之從左下角發射
-      const startX = isTargetOnLeft ? window.innerWidth * 0.9 : window.innerWidth * 0.1;
-      const startY = window.innerHeight * 0.82;
+      const beamMuzzle = getMuzzlePoint(clientX, 0.82);
       const newBeam: LaserBeam = {
         id: beamId,
-        startX,
-        startY,
+        startX: beamMuzzle.x,
+        startY: beamMuzzle.y,
         targetX: clientX,
         targetY: clientY,
       };
@@ -405,12 +518,11 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 7. 狙擊槍 (sniper_shot: 狙擊鏡視角急速放大縮放與超音速穿甲彈)
     if (pattern === 'sniper_shot') {
       const sniperId = Date.now() + Math.random();
-      const startX = isTargetOnLeft ? window.innerWidth * 0.95 : window.innerWidth * 0.05;
-      const startY = window.innerHeight * 0.85;
+      const sniperMuzzle = getMuzzlePoint(clientX, 0.85);
       setSniperBullets(prev => [...prev, {
         id: sniperId,
-        startX,
-        startY,
+        startX: sniperMuzzle.x,
+        startY: sniperMuzzle.y,
         targetX: clientX,
         targetY: clientY,
       }]);
@@ -432,7 +544,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
     // 8. 其他近戰揮擊、抽打、擠壓、鍵盤砸、風扇吹、光劍切削
     executeHitImpact(clientX, clientY);
-  }, [currentWeapon, executeHitImpact]);
+  }, [currentWeapon, executeHitImpact, getMuzzlePoint]);
 
   triggerAttackRef.current = triggerWeaponAttack;
 
@@ -455,7 +567,8 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 3. Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isCoarsePointer ? 1.5 : 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
     containerRef.current.appendChild(renderer.domElement);
@@ -550,11 +663,18 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       rendererRef.current.setSize(w, h);
     };
 
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(containerRef.current);
     window.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
       targetComp.dispose();
       weaponRenderer.dispose();
       particleManager.dispose();
@@ -584,12 +704,22 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
   // 滑鼠 / 觸控事件處理：涵蓋 'click', 'hold', 'drag' 三種打擊方式
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    activePointerIdRef.current = e.pointerId;
+    activePointerTypeRef.current = e.pointerType;
     isMouseDownRef.current = true;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    setCursorPos({ x: e.clientX, y: e.clientY, visible: true });
+    lastDragHitRef.current = { t: performance.now(), x: e.clientX, y: e.clientY };
+    setCursorPos({ x: e.clientX, y: e.clientY, visible: true, pointerType: e.pointerType });
     updateCursorWorldPos(e.clientX, e.clientY);
 
-    triggerWeaponAttack(e.clientX, e.clientY);
+    if (currentWeapon.animPattern === 'sniper_shot' && e.pointerType === 'touch') {
+      targetZoomRef.current = 1.16;
+    } else {
+      triggerWeaponAttack(e.clientX, e.clientY);
+    }
 
     // 若為 'hold'（按住連射型，如脈衝雷射槍、工業大風扇），啟動高頻連發定時器
     if (currentWeapon.attackType === 'hold') {
@@ -603,17 +733,19 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    setCursorPos({ x: e.clientX, y: e.clientY, visible: true });
+    setCursorPos({ x: e.clientX, y: e.clientY, visible: true, pointerType: e.pointerType });
     updateCursorWorldPos(e.clientX, e.clientY);
 
     // 若為狙擊槍，滑鼠懸停於目標中心範圍時微幅拉近縮放 (Hover Scope Zoom In 1.15)
-    if (currentWeapon.animPattern === 'sniper_shot') {
-      const centerX = window.innerWidth / 2;
-      const centerY = window.innerHeight * 0.48;
+    if (currentWeapon.animPattern === 'sniper_shot' && e.pointerType !== 'touch') {
+      const targetRect = targetHitboxRef.current?.getBoundingClientRect() ?? getGameRect();
+      const centerX = targetRect.left + targetRect.width / 2;
+      const centerY = targetRect.top + targetRect.height / 2;
       const dist = Math.hypot(e.clientX - centerX, e.clientY - centerY);
       // 當游標靠近邱邱本體 (半徑 220px 內)
-      if (dist < 220) {
+      if (dist < Math.max(targetRect.width, targetRect.height) * 0.65) {
         isHoveringTargetRef.current = true;
         // 如果當前沒有正在進行開火的強力震爆縮放，微幅放大至 1.16
         if (targetZoomRef.current < 1.2) {
@@ -639,20 +771,27 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     }
   };
 
-  const handlePointerUp = () => {
-    isMouseDownRef.current = false;
-    if (holdIntervalRef.current) {
-      clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
+    if (currentWeapon.animPattern === 'sniper_shot' && activePointerTypeRef.current === 'touch') {
+      triggerWeaponAttack(e.clientX, e.clientY);
+    }
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    const hideAfterTouch = activePointerTypeRef.current === 'touch';
+    stopActiveAttack(false);
+    if (hideAfterTouch) {
+      window.setTimeout(() => setCursorPos(prev => ({ ...prev, visible: false })), 200);
     }
   };
 
-  const handlePointerLeave = () => {
-    handlePointerUp();
-    setCursorPos(prev => ({ ...prev, visible: false }));
-    if (currentWeapon.animPattern === 'sniper_shot') {
-      isHoveringTargetRef.current = false;
-      targetZoomRef.current = 1.0;
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
+    stopActiveAttack(true);
+  };
+
+  const handlePointerLeave = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') {
+      stopActiveAttack(true);
     }
   };
 
@@ -777,27 +916,42 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     }
   };
 
+  const isCompactLandscape = gameSize.height > 0 && gameSize.height < 450 && gameSize.width > gameSize.height;
+  const fitScale = gameSize.width && gameSize.height
+    ? Math.max(0.56, Math.min((gameSize.width - 24) / 320, (gameSize.height - (isCompactLandscape ? 28 : 72)) / 430, isCompactLandscape ? 0.78 : 1))
+    : 1;
+  const touchCursorOffset = cursorPos.pointerType === 'touch'
+    ? { x: currentWeapon.animPattern === 'sniper_shot' ? 0 : 48, y: currentWeapon.animPattern === 'sniper_shot' ? 0 : -56, opacity: 0.78 }
+    : { x: 0, y: 0, opacity: 1 };
+  const renderGameRect = getGameRect();
+  const cursorMuzzle = getMuzzlePoint(cursorPos.x || renderGameRect.left + renderGameRect.width / 2, 0.86);
+
   return (
     <div 
       ref={rootRef}
-      className="relative w-full h-full cursor-crosshair overflow-hidden select-none touch-none"
+      className="relative h-full w-full cursor-crosshair overflow-hidden select-none touch-game"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       onPointerLeave={handlePointerLeave}
+      onLostPointerCapture={handlePointerCancel}
+      onContextMenu={(e) => e.preventDefault()}
     >
       {/* 核心實體打擊人物 (邱邱) - 保證在畫面正中央完美顯示，配合果凍擠壓與受創動畫 */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 pb-16 sm:pb-24">
-        <div ref={targetPhysRef} style={{ willChange: 'transform' }}>
+      <div className={`absolute inset-0 z-10 flex items-center justify-center pointer-events-none ${isCompactLandscape ? 'pb-0 -translate-y-2' : 'pb-4 sm:pb-8'}`}>
+        <div style={{ transform: `scale(${fitScale})`, transformOrigin: 'center bottom', willChange: 'transform' }}>
+          <div ref={targetPhysRef} style={{ willChange: 'transform' }}>
           <TargetCharacter
+            ref={targetHitboxRef}
             hitTrigger={targetHitTrigger}
             subtitle={targetSubtitle}
             splatEffects={splatEffects}
             isHeavyHit={currentWeapon.damage >= 30 || currentWeapon.id === 'rpg_rocket' || currentWeapon.id === 'thunder_hammer'}
             hitRegion={lastHitRegion}
             stress={chiuchiuStress}
-            knockdownCount={knockdownCount}
           />
+          </div>
         </div>
       </div>
 
@@ -816,7 +970,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
           }}
           animate={{
             left: [`${p.startX}px`, `${(p.startX + p.targetX) / 2}px`, `${p.targetX}px`],
-            top: [`${p.startY}px`, `${Math.min(p.targetY - 120, window.innerHeight * 0.25)}px`, `${p.targetY}px`],
+            top: [`${p.startY}px`, `${Math.min(p.targetY - 120, renderGameRect.top + renderGameRect.height * 0.25)}px`, `${p.targetY}px`],
             scale: [0.6, 1.6, 1.2],
             rotate: 720,
           }}
@@ -864,7 +1018,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
       {/* 3. 脈衝雷射光束 (脈衝雷射槍 SVG 雷射光軌) */}
       {laserBeams.map(beam => (
-        <svg key={beam.id} className="absolute inset-0 w-full h-full pointer-events-none z-40">
+        <svg key={beam.id} className="fixed inset-0 w-screen h-screen pointer-events-none z-40">
           <line
             x1={beam.startX}
             y1={beam.startY}
@@ -944,7 +1098,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
           {/* 天空紫藍強光暴閃 */}
           <div className="absolute inset-0 bg-blue-500/20 animate-pulse pointer-events-none" />
           {/* 落雷垂直主雷柱與枝枒 SVG */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <svg className="fixed inset-0 w-screen h-screen pointer-events-none">
             <polyline
               points={`
                 ${ls.targetX + (Math.random() - 0.5) * 60},0
@@ -999,8 +1153,8 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             </div>
 
             {/* 十字線：上、下、左、右貫穿延伸線 */}
-            <div className="absolute w-[240px] h-[1.5px] bg-gradient-to-r from-transparent via-red-500/70 to-transparent" />
-            <div className="absolute h-[240px] w-[1.5px] bg-gradient-to-b from-transparent via-red-500/70 to-transparent" />
+            <div className="absolute h-[1.5px] w-[min(58vmin,240px)] bg-gradient-to-r from-transparent via-red-500/70 to-transparent" />
+            <div className="absolute w-[1.5px] h-[min(58vmin,240px)] bg-gradient-to-b from-transparent via-red-500/70 to-transparent" />
 
             {/* 密位測距刻度 (Mil-Dots) */}
             <div className="absolute left-[30px] w-1 h-1 bg-red-400 rounded-full" />
@@ -1013,10 +1167,10 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             <div className="absolute bottom-[60px] w-1 h-1 bg-red-400 rounded-full" />
 
             {/* 戰術抬頭顯示 (HUD) */}
-            <div className="absolute top-[-90px] text-xs font-mono font-bold tracking-widest text-red-500/90 bg-black/40 px-2.5 py-0.5 rounded border border-red-500/30">
+            <div className="absolute top-[calc(-1*min(20vmin,90px))] max-w-[80vw] truncate rounded border border-red-500/30 bg-black/40 px-2.5 py-0.5 font-mono text-[10px] font-bold tracking-widest text-red-500/90 sm:text-xs">
               SNIPER SCOPE 4X
             </div>
-            <div className="absolute bottom-[-90px] text-[11px] font-mono text-red-400/90 tracking-widest">
+            <div className="absolute bottom-[calc(-1*min(20vmin,90px))] max-w-[84vw] truncate font-mono text-[10px] tracking-widest text-red-400/90 sm:text-[11px]">
               RANGE: 150M • CAL: 7.62mm
             </div>
           </div>
@@ -1025,25 +1179,21 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
           {cursorPos.visible && (
             <>
               {/* 槍口至游標的直線瞄準紅外線 */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none">
+              <svg className="fixed inset-0 w-screen h-screen pointer-events-none">
                 {(() => {
-                  const midX = window.innerWidth / 2;
-                  const isTargetOnLeft = cursorPos.x < midX;
-                  const gunStartX = isTargetOnLeft ? window.innerWidth * 0.92 : window.innerWidth * 0.08;
-                  const gunStartY = window.innerHeight * 0.88;
                   return (
                     <>
                       <line
-                        x1={gunStartX}
-                        y1={gunStartY}
+                        x1={cursorMuzzle.x}
+                        y1={cursorMuzzle.y}
                         x2={cursorPos.x}
                         y2={cursorPos.y}
                         stroke="rgba(239, 68, 68, 0.35)"
                         strokeWidth="3"
                       />
                       <line
-                        x1={gunStartX}
-                        y1={gunStartY}
+                        x1={cursorMuzzle.x}
+                        y1={cursorMuzzle.y}
                         x2={cursorPos.x}
                         y2={cursorPos.y}
                         stroke="#ff2222"
@@ -1071,7 +1221,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       {/* 8. 狙擊槍擊發時的超音速破空彈道、破甲閃光與衝擊波 */}
       {sniperBullets.map(sb => (
         <div key={sb.id} className="absolute inset-0 pointer-events-none z-40">
-          <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <svg className="fixed inset-0 w-screen h-screen pointer-events-none">
             {/* 超音速破甲彈道白熱核心 */}
             <line
               x1={sb.startX}
@@ -1111,12 +1261,13 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             currentWeapon.animPattern === 'sniper_shot'
               ? {
                   // 狙擊槍架設於下緣發射端，槍口朝向游標準心
-                  left: `${cursorPos.x < window.innerWidth / 2 ? window.innerWidth * 0.88 : window.innerWidth * 0.12}px`,
-                  top: `${window.innerHeight * 0.86}px`,
+                  left: `${cursorMuzzle.x}px`,
+                  top: `${cursorMuzzle.y}px`,
                 }
               : {
-                  left: `${cursorPos.x}px`,
-                  top: `${cursorPos.y}px`,
+                  left: `${cursorPos.x + touchCursorOffset.x}px`,
+                  top: `${cursorPos.y + touchCursorOffset.y}px`,
+                  opacity: touchCursorOffset.opacity,
                 }
           }
         >
@@ -1127,7 +1278,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
                 ? getHandAnimationVariants(currentWeapon.animPattern)
                 : currentWeapon.animPattern === 'sniper_shot'
                 ? {
-                    rotate: cursorPos.x < window.innerWidth / 2 ? -15 : 15,
+                    rotate: cursorPos.x < renderGameRect.left + renderGameRect.width / 2 ? -15 : 15,
                     scale: 1.25,
                   }
                 : { rotate: -15, scale: 1 }
@@ -1152,7 +1303,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             animate={{ opacity: 1, y: -20, scale: 1.15 }}
             exit={{ opacity: 0, scale: 0.8, y: -45 }}
             transition={{ type: 'spring', stiffness: 450, damping: 22 }}
-            className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-1/2 bg-white text-black font-black px-4 py-2 sm:px-6 sm:py-2.5 rounded-2xl border-4 border-black shadow-[0_8px_0_rgba(0,0,0,1)] text-base sm:text-xl whitespace-nowrap"
+            className="fixed z-30 pointer-events-none max-w-[min(82vw,20rem)] -translate-x-1/2 -translate-y-1/2 break-words rounded-2xl border-4 border-black bg-white px-4 py-2 text-center text-sm font-black leading-tight text-black shadow-[0_8px_0_rgba(0,0,0,1)] sm:px-6 sm:py-2.5 sm:text-xl"
             style={{
               left: `${bubble.screenX}px`,
               top: `${bubble.screenY}px`,
@@ -1175,7 +1326,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             animate={{ opacity: [0, 1, 1, 0], scale: [0.35, 1.4, 1.2, 1.8], rotate: [-10, 6, -3, 0] }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.52, ease: 'easeOut' }}
-            className="fixed pointer-events-none z-50 -translate-x-1/2 -translate-y-1/2 font-black text-3xl sm:text-5xl italic px-4 py-1 rounded-2xl border-4 border-black bg-white shadow-[0_8px_0_rgba(0,0,0,0.9)]"
+            className="fixed pointer-events-none z-50 max-w-[min(86vw,22rem)] -translate-x-1/2 -translate-y-1/2 break-words rounded-2xl border-4 border-black bg-white px-3 py-1 text-center text-2xl font-black italic leading-none shadow-[0_8px_0_rgba(0,0,0,0.9)] sm:px-4 sm:text-5xl"
             style={{
               left: `${burst.screenX}px`,
               top: `${burst.screenY}px`,
@@ -1197,7 +1348,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             initial={{ opacity: 1, y: 0, scale: 0.7 }}
             animate={{ opacity: 0, y: -90, scale: 1.4 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
-            className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-1/2 font-black text-2xl sm:text-3xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.85)]"
+            className="fixed z-30 pointer-events-none max-w-[min(78vw,14rem)] -translate-x-1/2 -translate-y-1/2 break-words text-center text-xl font-black leading-tight drop-shadow-[0_4px_8px_rgba(0,0,0,0.85)] sm:text-3xl"
             style={{
               left: `${damage.screenX}px`,
               top: `${damage.screenY}px`,

@@ -1,0 +1,128 @@
+# Per_BeatChiuChiu 2.0 開發指令 (Prompt)
+
+你是資深 Web 遊戲工程師 / 技術美術。請在現有專案 (React 19 + Vite + TypeScript + Three.js + zustand + motion + Tailwind 4) 上進行 2.0 升級。
+先完整閱讀 src/ 內容再動手；每個階段結束都要執行 `npm run lint` (tsc --noEmit) 與 `npm run build`，確認無誤再進入下一階段。
+所有 UI 文字維持繁體中文。不得破壞現有 21 把武器的玩法。
+主題補充：這是一款以「打邱邱」為主的誇張喜劇式舒壓遊戲，邱邱是一隻狗；所有 HUD、浮字、漫畫泡泡、受擊台詞、武器描述與網頁 metadata 都要圍繞「邱邱正在被打、被制裁、被打到汪汪叫」的氛圍設計，充斥戲謔霸凌邱邱的語氣，但維持卡通、非寫實、無血腥的表現。
+
+======================================================================
+一、現況盤點 (已閱讀程式碼後的診斷)
+======================================================================
+專案：打「邱邱」(邱邱是狗，狗身 + 自訂頭像) 的發洩遊戲。21 把武器 (src/config/weapons.ts)，三種攻擊方式 click/hold/drag，Combo/狂暴模式，3 種場景背景，Web Audio 合成音效。核心訊息不是泛用打擊，而是「所有事都在打邱邱」：分數、進度條、暴擊、部位判定、受擊台詞都應該明確叫出邱邱/狗頭/狗臉/狗身。
+
+【架構性問題：同一個打擊被多套系統各畫一次，彼此沒有同步】
+1. 邱邱實際上是 DOM (TargetCharacter.tsx, motion 關鍵影格)，而 TargetComponent.ts 的 3D group 被設為 visible=false。
+   => JigglePhysics (胡克彈簧) 算出的位移/旋轉/果凍形變「完全沒有畫在畫面上」，打擊回饋只靠固定的 DOM keyframes (只分 一般/重擊 兩種)，21 把武器的受擊手感其實都長一樣。
+2. 武器飛行物有「兩套」：ThreeScene.tsx 用 DOM/SVG (臭豆腐、火箭、珍奶、雷射、金磚、雷電、狙擊彈道) 另外 WeaponAnimationEngine 又在 Three 場景生成 3D 版火箭/臭豆腐/珍珠 => 同時出現雙重彈道，且 3D 版 onHit 是空函式。
+3. 命中時機靠硬編碼 setTimeout (360/260/180/280ms) 與動畫實際時長各自為政，容易「彈還沒到就有傷害數字」。setTimeout 沒有在元件卸載/換武器時清除。
+4. ThreeScene.tsx 單檔 ~1000 行，包含 7 種 state 陣列的特效、事件處理、渲染迴圈，難維護；每次打擊都 setState (浮字、泡泡、飛行物)，高頻武器 (hold 95ms、drag 每個 pointermove) 會造成大量 React re-render。
+
+【打擊 / 動畫手感問題 (重點)】
+5. WeaponAnimationEngine 的 animateXXX 每幀對 group.position 做 `+=` 累加 (非設定絕對值)，而攻擊中 updateCursorPosition 又被略過 => 武器位置會漂移、結束後不會回到游標位置；結束時只重置 rotation/scale，沒重置 position。
+6. 動畫全是對單張 emoji Sprite 做 sin() 縮放/旋轉，沒有 蓄力(anticipation) → 衝擊(impact) → 收招(follow-through) 的三段式節奏、沒有 easing 曲線、沒有殘影/拖尾 (motion trail)，揮擊看不出「揮」。
+7. 缺少打擊感三大要素：Hit-stop (命中凍結 40~90ms)、Screen shake (鏡頭/畫面震動，依傷害分級)、Impact flash/衝擊幀 (白閃、放射線、漫畫爆炸字)。目前只有狙擊有鏡頭縮放。
+8. 武器 swing / slap 類多把共用同一個 pattern：打狗棍 / 平底鍋 / 榴槤槌 / 法棍 都走 'swing'，藍白拖 / 鮭魚都走 'slap'，雞 / 貓爪都走 'squeeze'，辨識度低；engine 的 updateWeaponAnimation 把它們全部導向 animateDogStick，其他 animatePan/Baguette/Salmon 等函式其實是死碼。
+9. 受擊部位無差別：不管打頭或打身體、打左或右，反應一樣。沒有「打哪裡痛哪裡」(頭部歪、身體凹陷、臉部表情切換)。
+10. JigglePhysics：位移彈簧以 `positionOffset` 和 clone() 大量配置 Vector3 (每幀 GC)；dt 上限 0.05 但用顯式歐拉積分，高 stiffness (340) 時有發散風險；每次 applyImpulse 還會覆寫 stiffness/damping，連打時彈簧參數跳變。
+11. hold 武器 (雷射/風扇) 與 drag 武器 (光劍/吸盤) 沒有「持續狀態」概念：雷射每 95ms 重畫一條 SVG、風扇只是重複觸發；drag 每個 pointermove 都算一次打擊 (沒有節流/距離閾值)，傷害與分數可被亂滑刷爆。hold 的 setInterval 閉包捕捉到舊的 currentWeapon / comboCount，換武器後可能還用舊武器 (需改用 ref)。
+12. 傷害數字永遠固定 (damage 常數)，沒有暴擊、沒有隨機浮動、沒有部位加成，combo 只影響文字，不影響分數。
+
+【可玩性 / 內容問題】
+13. 沒有目標「血量/崩潰」進程、沒有成就、沒有存檔、沒有解鎖；score 只是一個會增加的數字，缺乏長期動機。
+14. 武器 21 把全部一開始就可用；沒有升級、沒有武器熟練度、沒有武器組合 (combo 加成)。
+15. 背景只有 3 種且為靜態 CSS 元件；沒有場景互動 (可被打壞的物件)。
+16. 手機體驗：touch-none 已做，但無震動回饋 (navigator.vibrate)、無 safe-area、武器列在小螢幕過擠。
+
+【程式品質 / 效能 / 維運問題】
+17. src/utils/particles.ts 是舊版粒子系統 (拖鞋/雞/球棒/手榴彈…)，與 physics/ParticleManager.ts 重複且已無人使用 => 刪除。
+18. 重複資源：src/assets、public/assets、public/custom 都有 dog_body / head；WeaponMenu.tsx 內的中文疑似亂碼 (編碼損壞)，需檢查並修正為 UTF-8。
+19. weapons.ts 內 icon 重複 (雷射槍與狙擊槍都是 🔫；臭豆腐用 🧈 不貼切)；fan 的 particleType 用 'wood' 不合理；無單元測試。
+20. 音效全是即時振盪器合成，沒有音量/音高隨機化 (連打單調)，沒有 combo 音階遞增，沒有背景音樂；isMuted 為 true 時 getAudioContext 回傳 null 但沒有恢復/suspend 處理 (iOS 需使用者手勢 resume)。
+21. 效能：renderer pixelRatio 上限 2、MAX_PARTICLES 3000 以 JS 陣列 ParticleData 逐一更新；物件池缺失 (Vector3 / Mesh / SVG 每次新建)；沒有 FPS 自適應降級。
+22. Vite 設定 / package.json 含多餘依賴 (@google/genai、express、dotenv、tsx) 與重複宣告 vite；未使用請移除。
+
+======================================================================
+二、2.0 目標與工作項目 (依優先序)
+======================================================================
+
+### 階段 A：重構打擊管線 (地基，先做)
+A1. 建立單一「HitEvent 管線」：
+    interface HitEvent { weaponId; point(世界/螢幕); region: 'head'|'body'|'limb'; damage; isCrit; combo; direction; }
+    所有武器行為 = 一個 WeaponBehavior 物件 (不要再用 if (pattern === ...) 串)：
+    { windUp(), fly()/travel(), impact(hit), recover() } 與 timeline 驅動。
+    命中時機由動畫 timeline 的 impact 事件觸發，移除所有硬編碼 setTimeout 命中延遲。
+A2. 把 ThreeScene.tsx 拆成：
+    - scene/SceneRoot (renderer, camera, loop)
+    - systems/HitSystem、FxSystem (浮字/漫畫泡泡/爆炸字)、WeaponSystem、CameraRig (shake / zoom / hitstop)
+    - 浮字、泡泡、彈道改用單一 canvas / Three 物件池繪製，避免高頻 React setState；React 只負責 HUD。
+A3. 統一渲染路徑：邱邱改為 Three.js 渲染 (讓 JigglePhysics 真正生效)，或反過來把物理輸出餵給 DOM transform——二選一但必須只有「一份」真實狀態。建議：用 Three 的分層 Plane (頭/身/眼/嘴) + 頂點彈性網格 (subdivided PlaneGeometry，打擊點附近頂點凹陷再回彈)。
+A4. 刪除死碼：utils/particles.ts、engine 中未被調度的 animateXXX、重複 3D/DOM 雙彈道。清理未使用依賴。
+A5. 所有計時器/事件改由 requestAnimationFrame 內的統一 clock 驅動，元件卸載時完整清理。
+
+### 階段 B：打擊手感與動畫 (本次重點)
+B1. 每把武器三段式動畫 (蓄力 → 衝擊 → 收招) + easing (easeOutBack / easeInCubic / spring)，用絕對位置計算 (position = base + offset)，修掉 `+=` 漂移；結束時一律回到游標跟隨。
+B2. Hit-stop：命中後全域時間縮放 (輕 40ms / 中 70ms / 重 110ms)，武器動畫與邱邱彈簧同步凍結再釋放；重武器 (火箭、黑洞、雷神、狙擊) 加慢動作 150~250ms (timeScale 0.2→1 緩出)。
+B3. Screen shake：依 damage 分級 (trauma 模型: shake = trauma^2，Perlin/噪聲平移 + 微旋轉)，hold 武器用低幅持續震動。
+B4. 衝擊幀特效：命中點白閃 1~2 幀、放射狀速度線、漫畫爆炸字 (POW / BAM / 啪! / 鏘!) 隨武器切換、地面灰塵圈、碎片依物理拋出 (材質/重力/彈跳)。
+B5. 武器拖尾 (Trail)：揮擊類 (棍/鍋/法棍/光劍/鮭魚) 加半透明弧形殘影 (ribbon mesh 或 canvas 歷史軌跡)；光劍刀光依拖曳路徑生成持續 0.3s 的發光切痕，並在邱邱身上留下短暫「切割線」。
+B6. 每把武器獨立動畫曲線 (不再共用 swing/slap/squeeze)：
+    - 打狗棍：雙手蓄力後仰 → 大弧橫掃 → 打中時棍子彎曲 (shear)。
+    - 平底鍋：重 → 慢蓄力、命中有「噹」的震動餘波 (鍋面高頻抖動衰減) 與眼冒金星。
+    - 榴槤槌 / 法棍：槌頭慣性延遲 (二階跟隨)，法棍命中斷裂一截、麵包屑噴出。
+    - 藍白拖 / 鮭魚：正反手交替抽打 (左右臉輪流紅腫)，魚尾 sine 波變形。
+    - 尖叫雞 / 貓爪：擠壓時 volume-preserving 縮放；貓爪留下可愛肉球印並冒愛心。
+    - 金磚：真正的由上而下加速墜落 (重力)，落地彈跳 2 次，地面金幣飛濺。
+    - 火箭 / 臭豆腐 / 珍奶：同一條 3D 彈道 (只保留一套)，彈道速度/弧度/尾焰粒子；命中才結算，並有 muzzle flash 與後座力。
+    - 雷神 / 雷射 / 狙擊：雷射改為持續光束 (長按期間單一 beam，粗細脈動，命中點灼燒光暈)，狙擊加入「按住瞄準→放開擊發」(zoom 時間越長越準、爆頭暴擊)，雷神打雷前先暗屏→閃光→衝擊波。
+    - 吸盤：drag 拉伸時邱邱臉部被吸住隨游標拉長 (頂點拉伸)，放開瞬間彈回 + 「啵」。
+    - 黑洞：真正的向心吸引 (粒子/邱邱頂點向中心收縮，歪曲 shader 或螢幕折射)，坍縮後爆發。
+B4. 邱邱受擊回饋 (依武器與打擊部位)：
+    - 頭/身/左右分區判定 (raycast 或 hitbox)，不同部位不同形變與表情 (被打臉 → 眼睛斜眼/眼冒星星/舌頭伸出/淚水)。
+    - 連續受擊累積「受損度」：臉腫紅、貼 OK 繃、頭上冒包、黑眼圈、衣服破損 (貼圖疊層 decals)；停手數秒後緩慢恢復。
+    - 傷害累積到門檻進入「崩潰/暈眩」演出 (轉圈、星星、癱倒再爬起) = 小關卡進程。
+B5. JigglePhysics 優化：改為半隱式 (或 Verlet) 積分 + 子步進 (固定 1/120s)；消除每幀 clone()；每武器的 stiffness/damping 以「衝量疊加」而非覆寫；加上位移/速度夾限避免爆衝；分「頭」與「身體」兩個彈簧並以二階跟隨連動 (頭比身體晚半拍)。
+B6. 輸入處理：hold 與 drag 使用 ref 取最新武器/combo；drag 加入速度與距離閾值 (滑越快傷害越高、低於閾值不計)，並限制每秒最大打擊次數；支援多點觸控與 pointer capture；觸控裝置加 navigator.vibrate 分級震動。
+
+### 階段 C：遊戲內容豐富化
+C1. 傷害系統：暴擊 (機率、頭部加成、combo 加成、drag 速度加成)、浮動範圍 ±15%、傷害數字依級距變大變色、MISS/PERFECT 判定 (狙擊、時機武器)。
+C2. 血量/進程：邱邱有「怒氣/爽度條」，滿條觸發「終結技演出」(全螢幕慢動作 + 武器大招)，之後換造型/進入下一關 (邱邱換裝：安全帽、超人披風、機器人，增加耐打度與獎勵)。
+C3. 解鎖與成長：爽度/金幣累積解鎖武器 (起始 5 把)，武器熟練度升級 (傷害、特效等級、新增音效變體)，隱藏武器 3~5 把 (例：巨型榔頭、仙女棒變身魔法少女、天降隕石、無限連打拳套、時間暫停懷錶)。
+C4. 武器組合技：連續使用不同武器觸發 combo 組合 (例：藍白拖→金磚→火箭 = 「台式三連殺」) 並給大量加成與專屬演出。
+C5. Combo 系統：Combo 時限依等級縮短、combo 音階遞增、combo 里程碑 (10/25/50/100) 全螢幕特效與稱號；狂暴模式改為可累積充能後手動啟動 (不是單純 20 combo)。
+C6. 場景擴充：新增 3~5 場景 (健身房、廚房、太空站、遊樂園、雨夜屋頂)；場景可互動物件 (被打飛的紙箱、玻璃、燈泡) 與天氣/粒子氛圍；場景切換有過場動畫；晝夜/天氣不影響玩法但影響氛圍。
+C7. 目標自訂：支援玩家上傳頭像 (本機 File → canvas 裁切圓形 → localStorage / IndexedDB)，自動生成「被打版」臉部 (紅腫/表情疊層)，可分享截圖/GIF (canvas captureStream + MediaRecorder)。
+C8. 成就與每日任務：例「一分鐘內 100 連擊」「用 5 種武器各打 20 下」「不使用重武器通過第 3 關」；成就跳出 Toast 與獎勵。
+C9. 存檔：zustand persist (localStorage) 儲存 分數、解鎖、設定、成就、最高 combo、排行 (本機)。
+
+### 階段 D：音效 / 介面 / 體驗
+D1. 音效：Web Audio 合成加入 音高/音量隨機 (±8%)、多層疊音 (衝擊 + 質感 + 尾音)、combo 遞增音階、受擊台詞語音風格化 (可選 TTS 或預錄)；加入簡單 BGM (可關閉)；分別的「音效/音樂」音量滑桿；首次使用者手勢後 resume AudioContext。
+D2. HUD：武器列分類/篩選 (近戰/投擲/槍械/魔法)、冷卻環 (重武器)、小螢幕橫向捲動優化、鍵盤快捷鍵 (1~9, 0, Q/E 切換)、暫停/設定面板。
+D3. 無障礙與設定：減少閃爍/震動模式 (prefers-reduced-motion 及設定開關)、色盲友善色、字體大小、畫質 (低/中/高：粒子上限、pixelRatio、後處理)。
+D4. 手機：safe-area、橫豎屏適配、震動回饋、PWA (manifest + service worker) 可離線遊玩。
+D5. 後處理 (可選、依畫質)：Bloom (雷射/光劍/雷電)、Chromatic aberration (重擊)、Vignette (狙擊/狂暴)，使用 three/examples/jsm/postprocessing。
+
+### 階段 E：品質與工程
+E1. 武器資料驅動：weapons.ts 擴充 schema (timeline、音效層、fx 預設、部位倍率、冷卻)，並用 zod 或 TS 型別驗證；每個 animPattern 對應獨一 behavior，補齊型別 (AnimPattern 與實際調度一致，不再 default → 打狗棍)。
+E2. 物件池：粒子、Vector3、Mesh、浮字、彈道統一 pool；粒子改用 InstancedMesh 或 Points + 自訂 ShaderMaterial (GPU 端做衰減/縮放)；MAX_PARTICLES 依畫質調整。
+E3. FPS 自適應：連續 2 秒 <45fps 自動降一級畫質。
+E4. 測試：vitest 針對 JigglePhysics (收斂性/穩定性)、傷害公式、combo 邏輯、存檔序列化；Playwright 做 smoke test (切武器 + 點擊不報錯)。
+E5. 修正編碼問題 (WeaponMenu.tsx 內亂碼) 並全專案統一 UTF-8；整理 assets 目錄 (只保留一份來源)；移除未使用依賴；README 補上 玩法、操作、擴充武器教學。
+E6. CI：保留 GitHub Pages (static.yml)，加入 lint + build + test 檢查；Vite base path 設定確認可部署。
+
+======================================================================
+三、驗收標準
+======================================================================
+- 同一次打擊只有「一套」彈道/特效，命中瞬間與傷害數字、音效、物理反應、鏡頭回饋在同一幀觸發 (誤差 ≤ 1 frame)。
+- 21 把武器各自擁有可辨識的專屬揮動/彈道/受擊反應；swing 類四把與 slap 類兩把肉眼可區分。
+- 連續快速點擊與長按 30 秒無記憶體成長 (物件池生效)，桌機 60fps、中階手機 ≥ 45fps。
+- 武器動畫結束後位置、旋轉、縮放完全回到初始狀態 (無漂移)。
+- 換武器、切場景、卸載元件後無殘留計時器或殘影。
+- `npm run lint`、`npm run build`、`npm run test` 皆通過。
+- 提供減少動態效果模式，開啟後無閃爍與強烈震動。
+
+======================================================================
+四、實作順序建議
+======================================================================
+A (管線重構) → B (手感，先做 hit-stop + shake + 打狗棍/平底鍋/金磚/火箭四把當範本，再套用其餘) → C1/C5/C9 (傷害、combo、存檔) → D1/D2 (音效與 HUD) → C2~C4,C6~C8 (內容) → D3~D5 → E。
+每完成一個階段請提交一次 commit，並在 commit message 說明改動與驗證方式。
+遇到需要美術資源處，先用程式生成 (Canvas / SVG / 粒子) 佔位，並保持資料驅動以便日後替換。

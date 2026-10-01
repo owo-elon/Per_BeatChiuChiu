@@ -9,6 +9,7 @@ import TargetCharacter from './TargetCharacter';
 import { playHitSound } from '../utils/audio';
 import { motion, AnimatePresence } from 'motion/react';
 import { AnimPattern } from '../types/weapon';
+import { createHitFeedback, getHitRegion, HitRegion } from '../game/hitFeedback';
 
 interface FloatingDamage {
   id: number;
@@ -23,6 +24,14 @@ interface ComicBubble {
   screenX: number;
   screenY: number;
   text: string;
+}
+
+interface ImpactBurst {
+  id: number;
+  screenX: number;
+  screenY: number;
+  text: string;
+  color: string;
 }
 
 // 拋物線丟擲物 (阿嬤臭豆腐)
@@ -84,14 +93,16 @@ interface ThreeSceneProps {
 
 export default function ThreeScene({ onHit }: ThreeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { currentWeapon, comboCount } = useGameStore();
+  const { currentWeapon, comboCount, chiuchiuStress, knockdownCount } = useGameStore();
 
   const [floatingDamages, setFloatingDamages] = useState<FloatingDamage[]>([]);
   const [comicBubbles, setComicBubbles] = useState<ComicBubble[]>([]);
+  const [impactBursts, setImpactBursts] = useState<ImpactBurst[]>([]);
 
   // 實體打擊目標角色 (TargetCharacter) 動態受創與台詞狀態
   const [targetHitTrigger, setTargetHitTrigger] = useState(0);
   const [targetSubtitle, setTargetSubtitle] = useState<string | null>(null);
+  const [lastHitRegion, setLastHitRegion] = useState<HitRegion>('body');
   const [splatEffects, setSplatEffects] = useState<{ id: number; icon: string; x: number; y: number }[]>([]);
 
   // 專屬武器飛行物與軌跡動畫狀態
@@ -123,9 +134,17 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
   // 滑鼠懸停於目標上方時的狙擊手瞄準鏡微幅縮放標誌 (Hover Scope Zoom)
   const isHoveringTargetRef = useRef(false);
 
+  // 打擊回饋：震動 (trauma)、hit-stop 與角色物理容器
+  const traumaRef = useRef(0);
+  const hitStopRef = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const targetPhysRef = useRef<HTMLDivElement>(null);
+  const triggerAttackRef = useRef<(x: number, y: number) => void>(() => {});
+  const lastDragHitRef = useRef({ t: 0, x: 0, y: 0 });
+
   // 拖曳狀態 (Drag) 與 連續按住 (Hold)
   const isMouseDownRef = useRef(false);
-  const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
 
   // 當 currentWeapon 改變時，動態同步切換 3D 空間中的武器模型與重設縮放
@@ -157,6 +176,8 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     // 3D 空間擊中點 (置於邱邱身前 z = 0.5)
     const hitPoint = new THREE.Vector3(x * 2.8, y * 2.2 + 0.1, 0.5);
     const hitDir = new THREE.Vector3(x, y, -1).normalize();
+    const region = getHitRegion(screenX, screenY, rect);
+    setLastHitRegion(region);
 
     // 1. TargetComponent 與 TargetCharacter 受創反應與果凍物理衝擊
     jiggle.applyImpulse(currentWeapon.physicalForce, hitDir, currentWeapon.id);
@@ -197,30 +218,58 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     playHitSound(currentWeapon.hitSound);
 
     // 5. 傷害浮字
+    const baseDamage = customDamage || currentWeapon.damage;
+    const regionMultiplier = region === 'head' ? 1.25 : region === 'left' || region === 'right' ? 1.12 : 1;
+    const critChance = Math.min(0.65, 0.1 + comboCount * 0.005 + (region === 'head' ? 0.15 : 0));
+    const isCrit = Math.random() < critChance;
+    const damageVal = Math.round(baseDamage * regionMultiplier * (0.85 + Math.random() * 0.3) * (isCrit ? 2 : 1));
+    const feedback = createHitFeedback(currentWeapon, region, damageVal, comboCount, isCrit);
+
+    // 打擊回饋：hit-stop 與畫面震動，依傷害分級
+    const tier = baseDamage >= 60 ? 2 : baseDamage >= 30 ? 1 : 0;
+    const trauma = [0.18, 0.4, 0.75][tier] + (isCrit ? 0.2 : 0);
+    traumaRef.current = Math.min(1, traumaRef.current + trauma);
+    hitStopRef.current = Math.max(hitStopRef.current, [0.03, 0.06, 0.1][tier] + (isCrit ? 0.03 : 0));
+    if (typeof navigator !== 'undefined' && navigator.vibrate && currentWeapon.attackType === 'click') {
+      navigator.vibrate([12, 25, 40][tier]);
+    }
+
     const damageId = Date.now() + Math.random();
-    const damageVal = customDamage || currentWeapon.damage;
     const newDamage: FloatingDamage = {
       id: damageId,
       screenX: screenX + (Math.random() - 0.5) * 40,
       screenY: screenY - 30,
-      text: comboCount >= 20 ? `狂暴 COMBO x${comboCount + 1} !` : `爽度 +${damageVal}`,
-      color: comboCount >= 20 ? '#ef4444' : (currentWeapon.animPattern === 'beam' ? '#38bdf8' : '#fbbf24'),
+      text: feedback.damageText,
+      color: feedback.color,
     };
     setFloatingDamages(prev => [...prev.slice(-8), newDamage]);
     setTimeout(() => {
       setFloatingDamages(prev => prev.filter(d => d.id !== damageId));
     }, 900);
 
+    const burstId = Date.now() + Math.random();
+    setImpactBursts(prev => [...prev.slice(-4), {
+      id: burstId,
+      screenX,
+      screenY,
+      text: feedback.headline,
+      color: feedback.color,
+    }]);
+    setTimeout(() => {
+      setImpactBursts(prev => prev.filter(b => b.id !== burstId));
+    }, 520);
+
     // 6. 隨機彈出專屬漫畫風台詞 (Subtitle)
     if (currentWeapon.subtitles && currentWeapon.subtitles.length > 0) {
       const bubbleId = Date.now() + Math.random();
       const randomText = currentWeapon.subtitles[Math.floor(Math.random() * currentWeapon.subtitles.length)];
-      setTargetSubtitle(randomText);
+      const subtitle = `${feedback.bubblePrefix}${randomText}`;
+      setTargetSubtitle(subtitle);
       const newBubble: ComicBubble = {
         id: bubbleId,
         screenX: screenX,
         screenY: screenY - 90,
-        text: randomText,
+        text: feedback.bubbleText,
       };
       setComicBubbles(prev => [...prev.slice(-2), newBubble]);
       setTimeout(() => {
@@ -385,6 +434,8 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     executeHitImpact(clientX, clientY);
   }, [currentWeapon, executeHitImpact]);
 
+  triggerAttackRef.current = triggerWeaponAttack;
+
   // 初始化 Three.js 場景、Target 組件與 3D 武器渲染器
   useEffect(() => {
     if (!containerRef.current) return;
@@ -437,11 +488,37 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
     const animate = (now: number) => {
       animationFrameId = requestAnimationFrame(animate);
-      const delta = (now - lastTime) / 1000;
+      const realDelta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
-      // 更新彈簧物理
-      jigglePhysicsRef.current.update(delta);
+      // Hit-stop：命中瞬間凍結物理與武器動畫，之後釋放
+      let delta = realDelta;
+      if (hitStopRef.current > 0) {
+        hitStopRef.current -= realDelta;
+        delta = realDelta * 0.05;
+      }
+
+      // 畫面震動 (shake = trauma^2)
+      if (traumaRef.current > 0 && rootRef.current) {
+        const s = traumaRef.current * traumaRef.current;
+        const sx = (Math.random() * 2 - 1) * 14 * s;
+        const sy = (Math.random() * 2 - 1) * 14 * s;
+        const sr = (Math.random() * 2 - 1) * 1.5 * s;
+        rootRef.current.style.transform = `translate(${sx}px, ${sy}px) rotate(${sr}deg)`;
+        traumaRef.current = Math.max(0, traumaRef.current - realDelta * 1.8);
+        if (traumaRef.current === 0) rootRef.current.style.transform = '';
+      }
+
+      // 更新彈簧物理，並將結果套用到畫面上的邱邱
+      const jp = jigglePhysicsRef.current;
+      jp.update(delta);
+      if (targetPhysRef.current) {
+        const sx = Math.max(0.3, jp.scaleOffset.x);
+        const sy = Math.max(0.3, jp.scaleOffset.y);
+        targetPhysRef.current.style.transform =
+          `translate(${jp.positionOffset.x * 60}px, ${-jp.positionOffset.y * 60}px) ` +
+          `rotate(${-jp.rotationOffset.z}rad) scale(${sx}, ${sy})`;
+      }
 
       // 更新 TargetComponent
       targetComp.update(delta);
@@ -519,7 +596,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
       if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
       holdIntervalRef.current = setInterval(() => {
         if (isMouseDownRef.current && lastMousePosRef.current) {
-          triggerWeaponAttack(lastMousePosRef.current.x, lastMousePosRef.current.y);
+          triggerAttackRef.current(lastMousePosRef.current.x, lastMousePosRef.current.y);
         }
       }, 95);
     }
@@ -552,7 +629,13 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
     // 若為 'drag'（拖曳切削型，如光速量子劍、萬能馬桶吸盤），滑動時持續打擊
     if (isMouseDownRef.current && currentWeapon.attackType === 'drag') {
-      triggerWeaponAttack(e.clientX, e.clientY);
+      // 節流：至少間隔 70ms 且移動 24px 才算一次打擊，避免亂滑刷分
+      const last = lastDragHitRef.current;
+      const now = performance.now();
+      if (now - last.t >= 70 && Math.hypot(e.clientX - last.x, e.clientY - last.y) >= 24) {
+        lastDragHitRef.current = { t: now, x: e.clientX, y: e.clientY };
+        triggerAttackRef.current(e.clientX, e.clientY);
+      }
     }
   };
 
@@ -696,6 +779,7 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
 
   return (
     <div 
+      ref={rootRef}
       className="relative w-full h-full cursor-crosshair overflow-hidden select-none touch-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -704,12 +788,17 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
     >
       {/* 核心實體打擊人物 (邱邱) - 保證在畫面正中央完美顯示，配合果凍擠壓與受創動畫 */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 pb-16 sm:pb-24">
-        <TargetCharacter
-          hitTrigger={targetHitTrigger}
-          subtitle={targetSubtitle}
-          splatEffects={splatEffects}
-          isHeavyHit={currentWeapon.damage >= 30 || currentWeapon.id === 'rpg_rocket' || currentWeapon.id === 'thunder_hammer'}
-        />
+        <div ref={targetPhysRef} style={{ willChange: 'transform' }}>
+          <TargetCharacter
+            hitTrigger={targetHitTrigger}
+            subtitle={targetSubtitle}
+            splatEffects={splatEffects}
+            isHeavyHit={currentWeapon.damage >= 30 || currentWeapon.id === 'rpg_rocket' || currentWeapon.id === 'thunder_hammer'}
+            hitRegion={lastHitRegion}
+            stress={chiuchiuStress}
+            knockdownCount={knockdownCount}
+          />
+        </div>
       </div>
 
       {/* Three.js Canvas 掛載容器 (內含 3D 粒子爆破、雷神閃電、光劍揮砍與 3D 武器渲染) */}
@@ -1073,6 +1162,29 @@ export default function ThreeScene({ onHit }: ThreeSceneProps) {
             <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[10px] border-l-transparent border-t-[14px] border-t-black border-r-[10px] border-r-transparent" />
             <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-t-[11px] border-t-white border-r-[8px] border-r-transparent" />
             {bubble.text}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {/* 衝擊漫畫字與放射線：每次命中都強調「打邱邱」的痛快感 */}
+      <AnimatePresence>
+        {impactBursts.map(burst => (
+          <motion.div
+            key={burst.id}
+            initial={{ opacity: 0, scale: 0.35, rotate: -10 }}
+            animate={{ opacity: [0, 1, 1, 0], scale: [0.35, 1.4, 1.2, 1.8], rotate: [-10, 6, -3, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.52, ease: 'easeOut' }}
+            className="fixed pointer-events-none z-50 -translate-x-1/2 -translate-y-1/2 font-black text-3xl sm:text-5xl italic px-4 py-1 rounded-2xl border-4 border-black bg-white shadow-[0_8px_0_rgba(0,0,0,0.9)]"
+            style={{
+              left: `${burst.screenX}px`,
+              top: `${burst.screenY}px`,
+              color: burst.color,
+              textShadow: '2px 2px 0 #000, -1px -1px 0 #000',
+            }}
+          >
+            <div className="absolute inset-[-26px] -z-10 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.95)_0%,rgba(250,204,21,0.7)_35%,transparent_70%)] animate-ping" />
+            {burst.text}
           </motion.div>
         ))}
       </AnimatePresence>

@@ -2,12 +2,16 @@ import { forwardRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import headImgUrl from '../assets/head.png';
 import bodyImgUrl from '../assets/dog_body.png';
+import { HitRegion } from '../game/hitFeedback';
 
 interface TargetCharacterProps {
   hitTrigger: number;
   subtitle: string | null;
   splatEffects: { id: number; icon: string; x: number; y: number }[];
   isHeavyHit: boolean; // 是否遭受手榴彈或閃電等重擊
+  hitRegion: HitRegion;
+  stress: number;
+  knockdownCount: number;
 }
 
 const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
@@ -15,7 +19,15 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
   subtitle,
   splatEffects,
   isHeavyHit,
+  hitRegion,
+  stress,
+  knockdownCount,
 }, ref) => {
+  const stressStage = stress >= 75 ? 3 : stress >= 45 ? 2 : stress >= 18 ? 1 : 0;
+  const isHeadHit = hitRegion === 'head';
+  const isLeftHit = hitRegion === 'left';
+  const isRightHit = hitRegion === 'right';
+
   return (
     <div ref={ref} className="relative flex flex-col items-center justify-center pointer-events-auto select-none">
       {/* 隨機冒出的對話氣泡 */}
@@ -37,6 +49,10 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <div className="absolute -bottom-8 z-30 px-3 py-1 rounded-full bg-black/75 border border-red-300/40 text-[11px] sm:text-xs font-black text-red-100 shadow-xl">
+        🐶 邱邱挨打值 {Math.round(stress)}% ・ 破防 {knockdownCount} 次
+      </div>
 
       {/* 狗頭與身體容器 (遭受一般打擊或重擊時劇烈的崩潰、變形與半透明閃爍動畫) */}
       <motion.div
@@ -62,10 +78,7 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
                   ],
                 }
               : {
-                  // 一般打擊：原本的彈性縮放與抖動
-                  scale: [1, 0.82, 1.18, 0.94, 1.05, 1],
-                  rotate: [0, -12, 14, -8, 6, 0],
-                  x: [0, -10, 12, -8, 4, 0],
+                  // 一般打擊：位移/旋轉/形變由 JigglePhysics 驅動，這裡只做受創閃爍
                   opacity: [1, 0.85, 1],
                 }
             : {}
@@ -80,11 +93,38 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
             alt="邱邱頭部" 
             className="w-36 h-36 sm:w-44 sm:h-44 object-cover rounded-full border-4 border-black bg-white shadow-2xl pointer-events-none drop-shadow-xl"
           />
-          {/* 重擊時頭部眼冒金星與漩渦眼效果 */}
-          {isHeavyHit && (
+
+          {(isHeavyHit || stressStage >= 2 || isHeadHit) && (
             <div className="absolute inset-0 flex items-center justify-center text-4xl animate-spin pointer-events-none">
               💫
             </div>
+          )}
+          {stressStage >= 1 && (
+            <div className="absolute left-2 top-7 text-3xl sm:text-4xl rotate-[-14deg] pointer-events-none drop-shadow-lg">
+              🩹
+            </div>
+          )}
+          {stressStage >= 2 && (
+            <div className="absolute right-1 top-12 text-3xl sm:text-4xl rotate-12 pointer-events-none drop-shadow-lg">
+              😵
+            </div>
+          )}
+          {stressStage >= 3 && (
+            <div className="absolute inset-x-0 bottom-2 flex justify-center gap-10 text-3xl pointer-events-none">
+              <span>💧</span>
+              <span>💧</span>
+            </div>
+          )}
+          {(isLeftHit || isRightHit) && (
+            <motion.div
+              key={`${hitTrigger}-${hitRegion}`}
+              initial={{ scale: 0, opacity: 0.95 }}
+              animate={{ scale: [0, 1.4, 1.05], opacity: [0.95, 0.8, 0.55] }}
+              transition={{ duration: 0.42, ease: 'easeOut' }}
+              className={`absolute top-16 w-14 h-10 rounded-full bg-red-500/55 blur-[1px] border-2 border-red-700/40 pointer-events-none ${
+                isLeftHit ? 'left-0' : 'right-0'
+              }`}
+            />
           )}
         </div>
 
@@ -95,6 +135,15 @@ const TargetCharacter = forwardRef<HTMLDivElement, TargetCharacterProps>(({
             alt="邱邱身體"
             className="w-56 h-64 sm:w-64 sm:h-76 object-contain drop-shadow-2xl pointer-events-none"
           />
+          {hitRegion === 'body' && (
+            <motion.div
+              key={`body-${hitTrigger}`}
+              initial={{ scale: 0, opacity: 0.9 }}
+              animate={{ scale: [0, 1.25, 1], opacity: [0.9, 0.65, 0.25] }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+              className="absolute left-1/2 top-1/2 w-20 h-14 -translate-x-1/2 -translate-y-1/2 rounded-full bg-orange-400/45 border-4 border-red-500/40 blur-[0.5px] pointer-events-none"
+            />
+          )}
         </div>
 
         {/* 投擲物擊中殘留在身上的污漬/番茄/雞蛋液 */}

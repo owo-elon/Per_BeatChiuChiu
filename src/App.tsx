@@ -9,17 +9,23 @@ export default function App() {
   const {
     currentBackground,
     comboCount,
+    maxCombo,
+    totalHits,
+    chiuchiuStress,
+    knockdownCount,
+    achievements,
+    achievementToast,
     score,
     isMuted,
-    addCombo,
+    registerHit,
     resetCombo,
-    addScore,
+    clearAchievementToast,
     setBackground,
     toggleMute,
   } = useGameStore();
 
   // Combo 超時自動中斷計時器 (3 秒沒打擊則重設 Combo 與狂暴狀態)
-  const comboTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const comboTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 是否進入狂暴狀態 (Combo >= 20)
   const isFrenzy = comboCount >= 20;
@@ -31,6 +37,12 @@ export default function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!achievementToast) return;
+    const timer = setTimeout(clearAchievementToast, 2600);
+    return () => clearTimeout(timer);
+  }, [achievementToast, clearAchievementToast]);
 
   // 重設 Combo 計時器 (若 3 秒內沒有再次打擊，則中斷 Combo，退出狂暴狀態)
   const refreshComboTimer = useCallback(() => {
@@ -44,10 +56,9 @@ export default function App() {
 
   // ThreeScene 回呼：打擊邱邱
   const handleHit = useCallback((damage: number) => {
-    addCombo();
+    registerHit(damage);
     refreshComboTimer();
-    addScore(damage);
-  }, [addCombo, addScore, refreshComboTimer]);
+  }, [registerHit, refreshComboTimer]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden flex flex-col items-center select-none touch-none">
@@ -80,12 +91,47 @@ export default function App() {
 
       {/* 頂部狀態列 */}
       <div className="absolute top-0 w-full p-4 sm:p-6 flex justify-between items-start z-40 pointer-events-none">
+        <div className="absolute left-1/2 top-4 sm:top-5 -translate-x-1/2 text-center pointer-events-none">
+          <motion.div
+            initial={{ y: -12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="px-5 py-2 rounded-2xl bg-black/70 border-2 border-yellow-300/60 shadow-[0_0_25px_rgba(250,204,21,0.45)]"
+          >
+            <h1 className="text-2xl sm:text-4xl font-black text-yellow-300 drop-shadow-[0_3px_0_#000] tracking-widest">
+              打邱邱
+            </h1>
+            <div className="hidden sm:block text-[11px] font-black text-red-200 tracking-[0.25em]">
+              痛扁狗狗邱邱・打到汪汪叫
+            </div>
+          </motion.div>
+        </div>
+
         {/* 左側：爽度指數 + 音量切換按鈕 */}
         <div className="flex items-center gap-3 pointer-events-auto" onPointerDown={(e) => e.stopPropagation()}>
           <div className="bg-black/60 backdrop-blur-md text-white px-5 py-2 sm:px-6 sm:py-2.5 rounded-2xl shadow-xl border border-white/10">
-            <div className="text-xs text-yellow-300/80 font-bold tracking-widest uppercase">爽度指數</div>
+            <div className="text-xs text-yellow-300/80 font-bold tracking-widest uppercase">打邱邱爽度</div>
             <div className="text-3xl sm:text-4xl font-black text-yellow-400 drop-shadow-md">
               {score.toLocaleString()}
+            </div>
+            <div className="mt-1 text-[10px] sm:text-xs text-white/70 font-bold">
+              已打邱邱 {totalHits.toLocaleString()} 下｜最高 {maxCombo} COMBO
+            </div>
+          </div>
+
+          <div className="hidden sm:block w-44 bg-black/60 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-xl border border-red-400/20">
+            <div className="flex justify-between text-[11px] font-black text-red-200 tracking-wider">
+              <span>邱邱挨打值</span>
+              <span>{Math.round(chiuchiuStress)}%</span>
+            </div>
+            <div className="mt-1 h-2.5 rounded-full bg-white/10 overflow-hidden border border-white/10">
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-amber-400 via-red-500 to-fuchsia-500"
+                animate={{ width: `${chiuchiuStress}%` }}
+                transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+              />
+            </div>
+            <div className="mt-1 text-[10px] text-white/65 font-bold">
+              破防 {knockdownCount} 次｜成就 {achievements.length}/5
             </div>
           </div>
 
@@ -153,6 +199,20 @@ export default function App() {
           </select>
         </div>
       </div>
+
+      <AnimatePresence>
+        {achievementToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -24, scale: 0.8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -18, scale: 0.9 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 24 }}
+            className="absolute top-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-5 py-3 rounded-2xl bg-yellow-300 text-black border-4 border-black shadow-[0_8px_0_rgba(0,0,0,0.9)] font-black text-sm sm:text-base"
+          >
+            {achievementToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 主 3D 遊戲畫布 (包含 Three.js Jiggle 彈簧物理、GPU 3D 粒子系統、漫畫對話浮動與傷害計算) */}
       <div className="flex-1 w-full h-full relative z-20 pb-20">

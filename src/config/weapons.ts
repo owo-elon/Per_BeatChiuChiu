@@ -13,7 +13,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'staff',
     physicalForce: { impulse: 18, damping: 0.82, stiffness: 220 },
     particleType: 'wood',
-    subtitles: ['打狗棒法！', '嗷嗚！痛痛痛！', '好棍法！', '看招三十六路棒法！'],
+    subtitles: ['打狗棒法專打邱邱！', '邱邱嗷嗚！痛痛痛！', '狗頭吃棍啦！', '看招三十六路打邱棒！'],
   },
 
   // 2. 尖叫雞 (Screaming Chicken)
@@ -28,7 +28,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'chicken',
     physicalForce: { impulse: 14, damping: 0.75, stiffness: 340 },
     particleType: 'feather',
-    subtitles: ['咕──！', '別捏了！', '尖叫警告！', '魔性穿腦！'],
+    subtitles: ['邱邱被雞叫震到破防！', '狗耳朵受不了啦！', '尖叫警告：邱邱挨揍中！', '魔性穿腦打狗音！'],
   },
 
   // 3. 台味藍白拖 (Taiwanese Blue-White Slipper)
@@ -43,7 +43,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'slipper',
     physicalForce: { impulse: 16, damping: 0.88, stiffness: 280 },
     particleType: 'spark',
-    subtitles: ['啪！啪！啪！', '阿嬤的武器！', '不敢了啦！', '打斷手骨顛倒勇！'],
+    subtitles: ['啪！啪！啪！邱邱臉歪！', '阿嬤拖鞋專修狗狗！', '邱邱不敢汪了啦！', '打到狗臉顛倒勇！'],
   },
 
   // 4. 平底鍋 (Frying Pan)
@@ -58,7 +58,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'pan',
     physicalForce: { impulse: 28, damping: 0.78, stiffness: 180 },
     particleType: 'spark',
-    subtitles: ['鏘！金屬狂響！', '頭好暈...', '看見星星了...', '平底鍋神威！'],
+    subtitles: ['鏘！狗頭金屬狂響！', '邱邱頭好暈...', '狗狗看見星星了...', '平底鍋制裁邱邱！'],
   },
 
   // 5. 發財黃金磚 (Golden Brick)
@@ -73,7 +73,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'gold',
     physicalForce: { impulse: 32, damping: 0.7, stiffness: 260 },
     particleType: 'gold',
-    subtitles: ['被錢砸的感覺！', '爽度 +9999！', '再來一塊！', '財富自由啦！'],
+    subtitles: ['邱邱被錢砸扁！', '打狗爽度 +9999！', '再來一塊壓狗磚！', '狗狗財富自由失敗！'],
   },
 
   // 6. 脈衝雷射槍 (Laser Blaster)
@@ -88,7 +88,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'laser',
     physicalForce: { impulse: 8, damping: 0.9, stiffness: 300 },
     particleType: 'electric',
-    subtitles: ['嗶嗶嗶！高能預警！', '被蒸發了！', '太硬了吧！', '全彈發射！'],
+    subtitles: ['嗶嗶嗶！邱邱高能挨射！', '狗毛都要被蒸發了！', '邱邱太耐打了吧！', '全彈發射打狗狗！'],
   },
 
   // 7. 火箭筒 (RPG Rocket Launcher)
@@ -103,7 +103,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'explosion',
     physicalForce: { impulse: 45, damping: 0.65, stiffness: 150 },
     particleType: 'fire',
-    subtitles: ['Boom！炸裂！', '直接起飛！', '太過分了！', '寸草不生！'],
+    subtitles: ['Boom！邱邱炸裂！', '狗狗直接起飛！', '邱邱：這太過分了汪！', '狗窩寸草不生！'],
   },
 
   // 8. 阿嬤臭豆腐 (Stinky Tofu)
@@ -111,14 +111,14 @@ export const WEAPONS: WeaponConfig[] = [
     id: 'stinky_tofu',
     name: '阿嬤臭豆腐',
     description: '手拋弧線丟擲臭豆腐，濃郁綠霧炸裂！',
-    icon: '🧈',
+    icon: '🥟',
     damage: 18,
     attackType: 'click',
     animPattern: 'lob_throw',
     hitSound: 'splat',
     physicalForce: { impulse: 15, damping: 0.92, stiffness: 120 },
     particleType: 'food',
-    subtitles: ['好臭！好喜歡！', '這味道太頂了！', '辣醬加滿！', '泡菜在哪裡？！'],
+    subtitles: ['邱邱被臭豆腐糊臉！', '狗鼻子崩潰了！', '辣醬加滿打邱邱！', '泡菜砸狗頭在哪裡？！'],
   },
 
   // 9. 雷神之鎚 (Mjolnir Thunder Hammer)
@@ -133,7 +133,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'thunder',
     physicalForce: { impulse: 36, damping: 0.72, stiffness: 240 },
     particleType: 'electric',
-    subtitles: ['索爾附體！', '電到麻木！', '神罰降臨！', '轟頂雷光！'],
+    subtitles: ['索爾附體劈邱邱！', '狗狗電到麻木！', '神罰專打邱邱！', '狗頭轟頂雷光！'],
   },
 
   // 10. 鮮美大鮭魚 (Fresh Salmon)
@@ -148,7 +148,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'slap',
     physicalForce: { impulse: 20, damping: 0.85, stiffness: 190 },
     particleType: 'juice',
-    subtitles: ['啪！鮮味十足！', '好滑！好爽！', '魚尾抽擊！', '生魚片外送！'],
+    subtitles: ['啪！鮭魚抽狗臉！', '邱邱被滑魚甩暈！', '魚尾連環打狗！', '生魚片外送到狗頭！'],
   },
 
   // 11. 萬能馬桶吸盤 (Toilet Plunger)
@@ -163,7 +163,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'pop',
     physicalForce: { impulse: 25, damping: 0.8, stiffness: 160 },
     particleType: 'juice',
-    subtitles: ['吸力超強！', '啵！鬆開了！', '這什麼吸盤？！', '通暢無比！'],
+    subtitles: ['吸住邱邱狗臉！', '啵！狗臉彈回來了！', '這吸盤專吸邱邱？！', '狗狗尊嚴通暢無比！'],
   },
 
   // 12. 極光冰錐 (Aurora Ice Spike)
@@ -178,7 +178,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'freeze',
     physicalForce: { impulse: 24, damping: 0.86, stiffness: 250 },
     particleType: 'ice',
-    subtitles: ['太冷了！', '瞬間凍結！', '碎成冰渣！', '絕對零度！'],
+    subtitles: ['邱邱冷到汪不出來！', '狗狗瞬間凍結！', '狗毛碎成冰渣！', '絕對零度打邱邱！'],
   },
 
   // 13. 狂暴榴槤槌 (Durian Mace)
@@ -193,7 +193,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'crush',
     physicalForce: { impulse: 30, damping: 0.74, stiffness: 210 },
     particleType: 'juice',
-    subtitles: ['刺刺的！', '水果之王！', '痛並快樂著！', '榴槤忘返！'],
+    subtitles: ['邱邱：刺刺的汪！', '水果之王砸狗頭！', '狗狗痛並快樂著！', '榴槤忘返打邱邱！'],
   },
 
   // 14. RGB 機械鍵盤 (Mechanical Keyboard)
@@ -208,7 +208,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'keyboard',
     physicalForce: { impulse: 19, damping: 0.84, stiffness: 270 },
     particleType: 'spark',
-    subtitles: ['鍵盤俠出擊！', '噠噠噠！', 'Ctrl+Z 無效！', '連點程式開起來！'],
+    subtitles: ['鍵盤俠出擊打邱邱！', '噠噠噠敲狗頭！', '邱邱 Ctrl+Z 無效！', '連點程式開起來霸凌狗狗！'],
   },
 
   // 15. 粉紅貓爪肉墊 (Fluffy Cat Paw)
@@ -223,7 +223,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'meow',
     physicalForce: { impulse: 22, damping: 0.76, stiffness: 140 },
     particleType: 'feather',
-    subtitles: ['喵~ 肉墊打擊！', '好軟好舒服！', '請繼續肉拍！', '呼嚕嚕~'],
+    subtitles: ['喵~ 肉墊拍邱邱！', '狗狗被貓掌教育！', '請繼續肉拍狗臉！', '呼嚕嚕壓制汪汪！'],
   },
 
   // 16. 法式長棍麵包 (Rock-Hard Baguette)
@@ -238,7 +238,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'staff',
     physicalForce: { impulse: 23, damping: 0.82, stiffness: 230 },
     particleType: 'food',
-    subtitles: ['比棍子還硬！', '法式武器！', '吃我一麵包！', '硬度堪比鑽石！'],
+    subtitles: ['比打狗棍還硬！', '法式武器修理邱邱！', '狗頭吃我一麵包！', '邱邱被鑽石麵包敲醒！'],
   },
 
   // 17. 工業大風扇 (Industrial Fan)
@@ -252,8 +252,8 @@ export const WEAPONS: WeaponConfig[] = [
     animPattern: 'tornado_wind',
     hitSound: 'wind',
     physicalForce: { impulse: 12, damping: 0.94, stiffness: 110 },
-    particleType: 'wood',
-    subtitles: ['風太大了！', '吹到面目全非！', '涼爽沉浸感！', '整個人要飛走了！'],
+    particleType: 'dust',
+    subtitles: ['風太大，邱邱狗毛亂飛！', '吹到狗臉面目全非！', '邱邱涼到破防！', '整隻狗要飛走了！'],
   },
 
   // 18. 爆漿珍奶砲 (Boba Tea Cannon)
@@ -268,7 +268,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'pop',
     physicalForce: { impulse: 17, damping: 0.85, stiffness: 260 },
     particleType: 'food',
-    subtitles: ['半糖微冰！', '波霸連發！', '太甜了受不了！', '嚼勁十足！'],
+    subtitles: ['半糖微冰糊狗臉！', '波霸連發打邱邱！', '邱邱甜到受不了！', '狗臉嚼勁十足！'],
   },
 
   // 19. 光速量子劍 (Lightsaber)
@@ -283,7 +283,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'saber',
     physicalForce: { impulse: 26, damping: 0.83, stiffness: 200 },
     particleType: 'electric',
-    subtitles: ['May the Force!', '切開一切！', '電光石火！', '嗡嗡嗡！'],
+    subtitles: ['May the Force 打邱邱！', '狗狗被光劍切線！', '電光石火修狗臉！', '嗡嗡嗡邱邱破防！'],
   },
 
   // 20. 微型黑洞產生器 (Mini Black Hole Generator)
@@ -298,7 +298,7 @@ export const WEAPONS: WeaponConfig[] = [
     hitSound: 'void',
     physicalForce: { impulse: 50, damping: 0.6, stiffness: 130 },
     particleType: 'void',
-    subtitles: ['被吸進去了！', '引力太強！', '空間扭曲！', '視界線已突破！'],
+    subtitles: ['邱邱被吸進去了！', '狗狗引力太強！', '狗臉空間扭曲！', '邱邱突破視界線！'],
   },
 
   // 21. 狙擊槍 (Sniper Rifle)
@@ -306,13 +306,13 @@ export const WEAPONS: WeaponConfig[] = [
     id: 'sniper_rifle',
     name: '狙擊槍',
     description: '具備精確點擊射擊與視角縮放效果，擊中強烈震退與粉塵飛揚！',
-    icon: '🔫',
-    damage: 98,
+    icon: '🎯',
+    damage: 85,
     attackType: 'click',
     animPattern: 'sniper_shot',
     hitSound: 'sniper',
     physicalForce: { impulse: 55, damping: 0.62, stiffness: 160 }, // 強烈震退力道
     particleType: 'dust', // 粉塵飛揚粒子
-    subtitles: ['一發入魂！', '精確鎖定！', '超音速破空！', '一槍入魂！'],
+    subtitles: ['一發入狗！', '精確鎖定邱邱！', '超音速破狗頭！', '一槍打到汪不出來！'],
   },
 ];

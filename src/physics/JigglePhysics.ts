@@ -22,6 +22,8 @@ export class JigglePhysics {
   // 當前剛度與阻尼
   private stiffness = 200;
   private damping = 0.8;
+  private tmpRot = new THREE.Vector3();
+  private tmpScale = new THREE.Vector3();
 
   /**
    * 施加衝擊力 (Impulse)
@@ -185,30 +187,44 @@ export class JigglePhysics {
    * 物理迴圈每幀更新計算
    */
   public update(delta: number) {
-    const dt = Math.min(delta, 0.05);
+    // 固定子步進 (1/120s) 維持高剛度下的數值穩定，最多 6 步避免卡頓時螺旋發散
+    let remaining = Math.min(delta, 0.05);
+    let steps = 0;
+    while (remaining > 1e-6 && steps < 6) {
+      const dt = Math.min(remaining, 1 / 120);
+      this.step(dt);
+      remaining -= dt;
+      steps++;
+    }
+  }
 
-    // 位移彈簧 Hooke's Law: F = -k*x - c*v
-    const fPos = this.positionOffset.clone().multiplyScalar(-this.stiffness);
-    const dampingPos = this.velocity.clone().multiplyScalar(this.damping * Math.sqrt(this.stiffness) * 2);
-    const aPos = fPos.sub(dampingPos);
-    this.velocity.addScaledVector(aPos, dt);
-    this.positionOffset.addScaledVector(this.velocity, dt);
+  private step(dt: number) {
+    const sq = Math.sqrt(this.stiffness);
+    const cp = this.damping * sq * 2;
+    const cr = this.damping * sq * 1.8;
+    const cs = this.damping * sq * 2.2;
 
-    // 旋轉彈簧
-    const currentRot = new THREE.Vector3(this.rotationOffset.x, this.rotationOffset.y, this.rotationOffset.z);
-    const fRot = currentRot.clone().multiplyScalar(-this.stiffness * 0.8);
-    const dampingRot = this.angularVelocity.clone().multiplyScalar(this.damping * Math.sqrt(this.stiffness) * 1.8);
-    const aRot = fRot.sub(dampingRot);
-    this.angularVelocity.addScaledVector(aRot, dt);
-    currentRot.addScaledVector(this.angularVelocity, dt);
-    this.rotationOffset.set(currentRot.x, currentRot.y, currentRot.z);
+    // 半隱式歐拉：先更新速度再更新位置 (Hooke: F = -k*x - c*v)
+    this.integrate(this.positionOffset, this.velocity, this.stiffness, cp, dt);
 
-    // 果凍形變彈簧 (向 (1,1,1) 平衡態回彈)
-    const scaleDiff = new THREE.Vector3().subVectors(this.scaleOffset, new THREE.Vector3(1, 1, 1));
-    const fScale = scaleDiff.multiplyScalar(-this.stiffness * 1.2);
-    const dampingScale = this.scaleVelocity.clone().multiplyScalar(this.damping * Math.sqrt(this.stiffness) * 2.2);
-    const aScale = fScale.sub(dampingScale);
-    this.scaleVelocity.addScaledVector(aScale, dt);
-    this.scaleOffset.addScaledVector(this.scaleVelocity, dt);
+    const r = this.rotationOffset;
+    this.tmpRot.set(r.x, r.y, r.z);
+    this.integrate(this.tmpRot, this.angularVelocity, this.stiffness * 0.8, cr, dt);
+    this.tmpRot.clampScalar(-1.2, 1.2);
+    this.rotationOffset.set(this.tmpRot.x, this.tmpRot.y, this.tmpRot.z);
+
+    this.tmpScale.copy(this.scaleOffset).subScalar(1);
+    this.integrate(this.tmpScale, this.scaleVelocity, this.stiffness * 1.2, cs, dt);
+    this.tmpScale.clampScalar(-0.7, 1.2);
+    this.scaleOffset.set(1 + this.tmpScale.x, 1 + this.tmpScale.y, 1 + this.tmpScale.z);
+
+    this.positionOffset.clampScalar(-3, 3);
+  }
+
+  private integrate(x: THREE.Vector3, v: THREE.Vector3, k: number, c: number, dt: number) {
+    v.x += (-k * x.x - c * v.x) * dt;
+    v.y += (-k * x.y - c * v.y) * dt;
+    v.z += (-k * x.z - c * v.z) * dt;
+    x.addScaledVector(v, dt);
   }
 }

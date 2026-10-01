@@ -18,6 +18,7 @@ export class WeaponRenderer3D {
   private animTimer = 0;
   private isAttacking = false;
   private targetHitPos = new THREE.Vector3();
+  private basePos = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, jigglePhysics?: JigglePhysics) {
     this.scene = scene;
@@ -94,18 +95,8 @@ export class WeaponRenderer3D {
     this.isAttacking = true;
     this.animTimer = 0;
     this.targetHitPos.copy(targetWorldPos);
-
-    // 若為 3D 拋射或彈道類，由 animationEngine 產生真實 3D 飛行動態
-    const pattern = this.currentWeapon.animPattern;
-    const startWorldPos = this.group.position.clone();
-
-    if (pattern === 'rocket_shoot') {
-      this.animationEngine.spawn3DRocketTrajectory(startWorldPos, targetWorldPos, () => {});
-    } else if (pattern === 'lob_throw') {
-      this.animationEngine.spawn3DLobTrajectory(startWorldPos, targetWorldPos, () => {});
-    } else if (pattern === 'boba_burst') {
-      this.animationEngine.spawn3DBobaTrajectory(startWorldPos, targetWorldPos, () => {});
-    }
+    // 記錄攻擊起點，每幀以絕對位置 (base + offset) 計算，避免 += 累積漂移
+    this.basePos.copy(this.group.position);
   }
 
   /**
@@ -122,16 +113,18 @@ export class WeaponRenderer3D {
       const t = this.animTimer;
       const pattern = this.currentWeapon.animPattern;
 
-      // 調用 20 種武器的專屬 JavaScript 3D 動畫函數
+      this.group.position.copy(this.basePos);
       const isFinished = this.animationEngine.updateWeaponAnimation(
         pattern,
         this.sprite,
         this.group,
-        t
+        t,
+        this.currentWeapon.id
       );
 
       if (isFinished) {
         this.isAttacking = false;
+        this.group.position.copy(this.basePos);
         (this.sprite.material as THREE.SpriteMaterial).rotation = 0;
         this.sprite.scale.set(1.4, 1.4, 1);
       }

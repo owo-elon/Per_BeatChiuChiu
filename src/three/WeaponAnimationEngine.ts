@@ -461,8 +461,22 @@ export class WeaponAnimationEngine {
     pattern: AnimPattern,
     sprite: THREE.Sprite,
     group: THREE.Group,
-    t: number
+    t: number,
+    weaponId?: string
   ): boolean {
+    // 共用 pattern 的武器依 id 使用各自專屬動畫
+    switch (weaponId) {
+      case 'frying_pan':
+        return this.animateFryingPan(sprite, group, t);
+      case 'durian_mace':
+        return this.animateDurianMace(sprite, group, t);
+      case 'baguette':
+        return this.animateBaguette(sprite, group, t);
+      case 'salmon':
+        return this.animateSalmon(sprite, group, t);
+      case 'cat_paw':
+        return this.animateCatPaw(sprite, group, t);
+    }
     switch (pattern) {
       case 'swing':
         return this.animateDogStick(sprite, group, t);

@@ -26,8 +26,12 @@ export const playHitSound = (soundTag: string) => {
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const master = ctx.createGain();
+    osc.detune.setValueAtTime((Math.random() * 2 - 1) * 70, t);
+    master.gain.setValueAtTime(0.9 + Math.random() * 0.18, t);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(master);
+    master.connect(ctx.destination);
 
     switch (soundTag) {
       case 'staff': // 打狗棍、長棍麵包：木棍沉悶敲擊
